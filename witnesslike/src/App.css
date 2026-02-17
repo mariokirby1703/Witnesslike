@@ -1,0 +1,427 @@
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 3rem 2.5rem 4rem;
+  display: grid;
+  gap: 2.5rem;
+}
+
+.home-hero {
+  display: grid;
+  gap: 0.8rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 26px;
+  padding: 1.6rem 1.8rem;
+  box-shadow: var(--shadow-soft);
+}
+
+.puzzle-top {
+  position: relative;
+  padding-left: 4.5rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.back-button {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  font-size: 2.2rem;
+  font-weight: 600;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-soft);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.back-button:hover {
+  transform: translateX(-2px);
+  box-shadow: 0 16px 30px rgba(31, 110, 140, 0.18);
+}
+
+.puzzle-hero h1 {
+  font-family: var(--serif);
+  font-size: clamp(2.2rem, 3.8vw, 3.6rem);
+  margin: 0;
+  color: var(--ink);
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.28em;
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  margin: 0;
+}
+
+.hero h1,
+.home-hero h1 {
+  font-family: var(--serif);
+  font-size: clamp(2.4rem, 4vw, 3.9rem);
+  margin: 0;
+  color: var(--ink);
+}
+
+.subtitle {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--ink-soft);
+}
+
+.symbol-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 1.2rem;
+}
+
+.symbol-tile {
+  display: grid;
+  gap: 0.65rem;
+  text-align: center;
+}
+
+.symbol-button {
+  aspect-ratio: 1 / 1;
+  border-radius: 28px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  display: grid;
+  place-items: center;
+  padding: 0.8rem;
+  box-shadow: var(--shadow-soft);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border 0.2s ease;
+}
+
+.symbol-button.active {
+  cursor: pointer;
+}
+
+.symbol-button.active:hover {
+  transform: translateY(-3px);
+  border-color: rgba(31, 110, 140, 0.4);
+  box-shadow: 0 18px 30px rgba(31, 110, 140, 0.2);
+}
+
+.symbol-button.selected {
+  border-color: var(--accent);
+  box-shadow: 0 20px 34px rgba(31, 110, 140, 0.28);
+}
+
+.symbol-button.placeholder {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.symbol-button svg {
+  width: 72%;
+  height: 72%;
+}
+
+.symbol-label {
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  transition: color 0.2s ease;
+}
+
+.symbol-tile:hover .symbol-label {
+  color: var(--ink);
+}
+
+.tile-stroke {
+  stroke: #1f6e8c;
+  stroke-width: 8;
+  stroke-linecap: round;
+  fill: none;
+}
+
+.tile-fill {
+  fill: #1f6e8c;
+}
+
+.symbol-button .tile-stroke {
+  fill: #1f6e8c;
+  stroke: none;
+}
+
+.tile-stroke.muted {
+  stroke: rgba(31, 110, 140, 0.5);
+}
+
+.tile-fill.muted {
+  fill: rgba(31, 110, 140, 0.5);
+}
+
+.tile-gap {
+  fill: var(--panel);
+}
+
+.tile-hex {
+  stroke: none;
+  fill: #bdbdbd;
+}
+
+.home-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1.4rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 1.2rem 1.6rem;
+  box-shadow: var(--shadow-soft);
+}
+
+.selection-title {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.24em;
+  font-size: 0.68rem;
+  color: var(--ink-soft);
+}
+
+.selection-count {
+  margin: 0.4rem 0 0;
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.puzzle-actions {
+  display: grid;
+  justify-items: center;
+  gap: 0.6rem;
+}
+
+.puzzle-hint {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+
+.btn {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0.7rem 1.6rem;
+  font-family: var(--sans);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  box-shadow: none;
+}
+
+.btn.primary {
+  background: linear-gradient(135deg, #1f6e8c, #2f8fb2);
+  color: white;
+  box-shadow: 0 14px 26px rgba(31, 110, 140, 0.25);
+}
+
+.btn.primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.btn.ghost {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.btn.ghost:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.board-shell {
+  background: #2a9be6;
+  border: 4px solid #1f1b17;
+  border-radius: 18px;
+  padding: 1.2rem;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 20px 40px rgba(31, 27, 23, 0.22);
+}
+
+.board {
+  width: min(90vmin, 780px);
+  max-width: 100%;
+  height: auto;
+  display: block;
+  touch-action: none;
+}
+
+.board-bg {
+  fill: #3ca7e8;
+  stroke: rgba(255, 255, 255, 0.3);
+  stroke-width: 0.08;
+  rx: 0.35;
+}
+
+.edges line {
+  stroke: #f7f7f5;
+  stroke-width: 0.28;
+  stroke-linecap: round;
+}
+
+.gaps .gap {
+  fill: #3ca7e8;
+}
+
+.hexagon {
+  fill: #bdbdbd;
+  stroke: none;
+}
+
+.color-square {
+  stroke: none;
+}
+
+.star {
+  stroke: none;
+}
+
+.polyomino-block {
+  fill: #f4c430;
+  stroke: none;
+}
+
+.tile-color-bar {
+  fill: #5f5f5f;
+}
+
+.tile-color-left {
+  fill: #ec4df5;
+}
+
+.tile-color-right {
+  fill: #33ff3d;
+}
+
+.tile-star {
+  fill: #f08a2f;
+}
+
+.tile-poly {
+  fill: #f4c430;
+}
+
+.path {
+  fill: none;
+  stroke: #ffd45b;
+  stroke-width: 0.34;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0.3px 0.35px rgba(255, 212, 91, 0.6));
+  transition: stroke 0.2s ease, filter 0.2s ease;
+  pointer-events: none;
+}
+
+.board.success .path {
+  stroke: #6ff29d;
+  filter: drop-shadow(0 0.35px 0.45px rgba(111, 242, 157, 0.7));
+}
+
+.board.fail .path {
+  stroke: #ff6b6b;
+  filter: drop-shadow(0 0.35px 0.45px rgba(255, 107, 107, 0.7));
+}
+
+.start {
+  fill: #f7f7f5;
+  stroke: #f7f7f5;
+  stroke-width: 0.08;
+  cursor: pointer;
+}
+
+.start.active {
+  fill: #ffd45b;
+  stroke: #ffd45b;
+}
+
+.start.success {
+  fill: #6ff29d;
+  stroke: #6ff29d;
+}
+
+.start.fail {
+  fill: #ff6b6b;
+  stroke: #ff6b6b;
+}
+
+.end-group {
+  cursor: default;
+}
+
+.end-group.active {
+  cursor: pointer;
+}
+
+.end-hit {
+  stroke: rgba(255, 255, 255, 0.01);
+  stroke-width: 0.6;
+  stroke-linecap: round;
+  fill: none;
+  pointer-events: none;
+}
+
+.end-group.active .end-hit,
+.end-group.active .end-cap {
+  pointer-events: stroke;
+}
+
+.end-cap {
+  stroke: #f7f7f5;
+  stroke-width: 0.26;
+  stroke-linecap: round;
+  fill: none;
+  pointer-events: none;
+}
+
+.cursor {
+  fill: #ffd45b;
+  stroke: #f7f7f5;
+  stroke-width: 0.06;
+  pointer-events: none;
+}
+
+@media (max-width: 1100px) {
+  .symbol-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .app {
+    padding: 2.2rem 1.4rem 3rem;
+  }
+
+  .puzzle-top {
+    padding-left: 4rem;
+  }
+
+  .back-button {
+    width: 3rem;
+    height: 3rem;
+  }
+
+  .symbol-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .board {
+    width: min(94vmin, 780px);
+  }
+}
