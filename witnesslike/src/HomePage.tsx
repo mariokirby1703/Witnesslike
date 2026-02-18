@@ -3,7 +3,9 @@ export type TileKind =
   | 'hexagon'
   | 'color-squares'
   | 'stars'
+  | 'arrows'
   | 'triangles'
+  | 'negator'
   | 'polyomino'
   | 'rotated-polyomino'
   | 'negative-polyomino'
@@ -83,6 +85,27 @@ function SymbolTile({ kind }: { kind: TileKind }) {
     )
   }
 
+  if (kind === 'arrows') {
+    const offsets = [0, 20]
+    const shaftY = 52
+    const headCenterY = 52
+    const headHalfHeight = 33
+    const headTailX = 33
+    const headTipX = 72
+    return (
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <line className="tile-arrow-shaft" x1="8" y1={shaftY} x2={headTipX + offsets[offsets.length - 1] - 6} y2={shaftY} />
+        {offsets.map((offset, index) => (
+          <polyline
+            key={`tile-arrow-head-${index}`}
+            points={`${headTailX + offset},${headCenterY - headHalfHeight} ${headTipX + offset},${headCenterY} ${headTailX + offset},${headCenterY + headHalfHeight}`}
+            className="tile-arrow-head"
+          />
+        ))}
+      </svg>
+    )
+  }
+
   if (kind === 'polyomino') {
     return (
       <svg viewBox="0 0 100 100" aria-hidden="true">
@@ -95,10 +118,22 @@ function SymbolTile({ kind }: { kind: TileKind }) {
 
   if (kind === 'triangles') {
     return (
+      <svg viewBox="-12 0 128 100" aria-hidden="true">
+        <polygon points="-10,72 10,36 30,72" className="tile-triangle" />
+        <polygon points="32,72 52,36 72,72" className="tile-triangle" />
+        <polygon points="74,72 94,36 114,72" className="tile-triangle" />
+      </svg>
+    )
+  }
+
+  if (kind === 'negator') {
+    return (
       <svg viewBox="0 0 100 100" aria-hidden="true">
-        <polygon points="0,76 14,50 28,76" className="tile-triangle" />
-        <polygon points="36,76 50,50 64,76" className="tile-triangle" />
-        <polygon points="72,76 86,50 100,76" className="tile-triangle" />
+        <g transform="translate(50 52)">
+          <line className="tile-negator-arm" x1="0" y1="0" x2="0" y2="-22" />
+          <line className="tile-negator-arm" x1="0" y1="0" x2="20" y2="12" />
+          <line className="tile-negator-arm" x1="0" y1="0" x2="-20" y2="12" />
+        </g>
       </svg>
     )
   }
@@ -143,6 +178,15 @@ function HomePage({ tiles, selectedIds, onToggle, onStart }: HomePageProps) {
       .filter((tile) => selectedIds.includes(tile.id))
       .map((tile) => tile.kind)
   )
+  const hasNegatorPrereq =
+    selectedKinds.has('hexagon') ||
+    selectedKinds.has('color-squares') ||
+    selectedKinds.has('stars') ||
+    selectedKinds.has('arrows') ||
+    selectedKinds.has('triangles') ||
+    selectedKinds.has('polyomino') ||
+    selectedKinds.has('rotated-polyomino') ||
+    selectedKinds.has('negative-polyomino')
   return (
     <div className="app home">
       <header className="home-hero">
@@ -160,17 +204,22 @@ function HomePage({ tiles, selectedIds, onToggle, onStart }: HomePageProps) {
             !isSelected &&
             !selectedKinds.has('polyomino') &&
             !selectedKinds.has('rotated-polyomino')
-          const isDisabled = !tile.active || (!isSelected && maxReached) || missingPolyPrereq
+          const missingNegatorPrereq =
+            tile.kind === 'negator' &&
+            !isSelected &&
+            !hasNegatorPrereq
+          const prereqLocked = missingPolyPrereq || missingNegatorPrereq
+          const isDisabled = !tile.active || (!isSelected && maxReached) || prereqLocked
           return (
           <div
             key={tile.id}
-            className={`symbol-tile ${isSelected ? 'selected' : ''} ${missingPolyPrereq ? 'prereq-locked' : ''}`}
+            className={`symbol-tile ${isSelected ? 'selected' : ''} ${prereqLocked ? 'prereq-locked' : ''}`}
           >
             <button
               type="button"
               className={`symbol-button ${tile.active ? 'active' : 'placeholder'} ${
                 isSelected ? 'selected' : ''
-              } ${missingPolyPrereq ? 'prereq-locked' : ''}`}
+              } ${prereqLocked ? 'prereq-locked' : ''}`}
               onClick={tile.active ? () => onToggle(tile) : undefined}
               disabled={isDisabled}
               aria-label={tile.label}
@@ -198,3 +247,6 @@ function HomePage({ tiles, selectedIds, onToggle, onStart }: HomePageProps) {
 }
 
 export default HomePage
+
+
+

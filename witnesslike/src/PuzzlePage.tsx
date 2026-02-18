@@ -1,13 +1,15 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Tile, TileKind } from './HomePage'
 import { END, END_CAP_LENGTH, GAP_SIZE, START, VIEWBOX } from './puzzleConstants'
 import type { Point } from './puzzleConstants'
 import {
+  COLOR_PALETTE,
   buildEdges,
   buildFullEdges,
   closestPointOnSegment,
   distance,
   edgeKey,
+  edgesFromPath,
   hasPath,
   hexPoints,
   listAllEdges,
@@ -17,19 +19,22 @@ import {
   shuffle,
   starPoints,
 } from './puzzleUtils'
-import { findAnyValidSolutionPath } from './puzzleSolver'
+import { evaluatePathConstraints, findAnyValidSolutionPath } from './puzzleSolver'
+import type { ArrowTarget } from './symbols/arrows'
+import { arrowDirectionAngle, generateArrowsForEdges } from './symbols/arrows'
 import type { ColorSquare } from './symbols/colorSquares'
-import { checkColorSquares, generateColorSquaresForEdges } from './symbols/colorSquares'
+import { generateColorSquaresForEdges } from './symbols/colorSquares'
 import type { HexTarget } from './symbols/hexagon'
-import { checkHexTargets, generateHexTargets } from './symbols/hexagon'
+import { generateHexTargets } from './symbols/hexagon'
+import type { NegatorTarget } from './symbols/negator'
+import { generateNegatorsForEdges } from './symbols/negator'
 import type { StarTarget } from './symbols/stars'
-import { checkStars, generateStarsForEdges } from './symbols/stars'
+import { generateStarsForEdges } from './symbols/stars'
 import type { TriangleTarget } from './symbols/triangles'
-import { checkTriangles, generateTrianglesForEdges } from './symbols/triangles'
+import { generateTrianglesForEdges } from './symbols/triangles'
 import type { PolyominoSymbol } from './symbols/polyomino'
 import {
   buildPolyominoPalette,
-  checkPolyominoes,
   generateNegativePolyominoesForEdges,
   generatePolyominoesForEdges,
   generateRotatedPolyominoesForEdges,
@@ -48,6 +53,53 @@ type PuzzlePageProps = {
 
 const MAX_POLYOMINO_SYMBOLS = 4
 const MAX_NEGATIVE_POLYOMINO_SYMBOLS = 4
+const MAX_SYMBOL_COLORS = 3
+
+type Eliminations = {
+  negators: number[]
+  arrows: number[]
+  colorSquares: number[]
+  stars: number[]
+  triangles: number[]
+  polyominoes: number[]
+  hexagons: number[]
+}
+
+function emptyEliminations(): Eliminations {
+  return {
+    negators: [],
+    arrows: [],
+    colorSquares: [],
+    stars: [],
+    triangles: [],
+    polyominoes: [],
+    hexagons: [],
+  }
+}
+
+function mapEliminations(
+  eliminatedNegatorIndexes: number[],
+  eliminatedSymbols: Array<
+    { kind: 'arrow'; index: number } |
+    { kind: 'color-square'; index: number } |
+    { kind: 'star'; index: number } |
+    { kind: 'triangle'; index: number } |
+    { kind: 'polyomino'; index: number } |
+    { kind: 'hexagon'; index: number }
+  >
+): Eliminations {
+  const mapped = emptyEliminations()
+  mapped.negators = [...eliminatedNegatorIndexes]
+  for (const symbol of eliminatedSymbols) {
+    if (symbol.kind === 'arrow') mapped.arrows.push(symbol.index)
+    if (symbol.kind === 'color-square') mapped.colorSquares.push(symbol.index)
+    if (symbol.kind === 'star') mapped.stars.push(symbol.index)
+    if (symbol.kind === 'triangle') mapped.triangles.push(symbol.index)
+    if (symbol.kind === 'polyomino') mapped.polyominoes.push(symbol.index)
+    if (symbol.kind === 'hexagon') mapped.hexagons.push(symbol.index)
+  }
+  return mapped
+}
 
 function generatePuzzle(seed: number): Puzzle {
   for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -73,6 +125,31 @@ function trianglePoints(centerX: number, centerY: number, size: number) {
   return `${centerX},${centerY - size} ${centerX - halfWidth},${centerY + size * 0.72} ${centerX + halfWidth},${centerY + size * 0.72}`
 }
 
+function buildColorSquarePool(rng: () => number) {
+  return shuffle(COLOR_PALETTE, rng).slice(0, MAX_SYMBOL_COLORS)
+}
+
+function countSymbolColors(
+  arrowTargets: ArrowTarget[],
+  colorSquares: ColorSquare[],
+  starTargets: StarTarget[],
+  triangleTargets: TriangleTarget[],
+  polyominoSymbols: PolyominoSymbol[],
+  negatorTargets: NegatorTarget[],
+  includeNegatorColors = true
+) {
+  const colors = new Set<string>()
+  for (const arrow of arrowTargets) colors.add(arrow.color)
+  for (const square of colorSquares) colors.add(square.color)
+  for (const star of starTargets) colors.add(star.color)
+  for (const triangle of triangleTargets) colors.add(triangle.color)
+  for (const symbol of polyominoSymbols) colors.add(symbol.color)
+  if (includeNegatorColors) {
+    for (const negator of negatorTargets) colors.add(negator.color)
+  }
+  return colors.size
+}
+
 function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
   const [seed, setSeed] = useState(() => Math.floor(Math.random() * 1_000_000_000))
   const [path, setPath] = useState<Point[]>([])
@@ -80,7 +157,14 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
   const [locked, setLocked] = useState(false)
   const [cursor, setCursor] = useState<Point | null>(null)
   const [result, setResult] = useState<Result>('idle')
+  const [eliminations, setEliminations] = useState<Eliminations>(() => emptyEliminations())
+  const [lastSolved, setLastSolved] = useState<{
+    seed: number
+    path: Point[]
+    eliminations: Eliminations
+  } | null>(null)
   const boardRef = useRef<SVGSVGElement | null>(null)
+  const solveTraceTimerRef = useRef<number | null>(null)
 
   const selectedKinds = useMemo<TileKind[]>(
     () => selectedTiles.map((tile) => tile.kind).filter((kind) => kind !== 'placeholder'),
@@ -89,8 +173,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
 
   const allEdges = useMemo(() => listAllEdges(), [])
 
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
-  const { puzzle, activeKinds, colorSquares, starTargets, triangleTargets, polyominoSymbols, hexTargets } = useMemo(() => {
+  const { puzzle, activeKinds, arrowTargets, colorSquares, starTargets, triangleTargets, polyominoSymbols, negatorTargets, hexTargets } = useMemo(() => {
     const baseKinds = selectedKinds.length > 0 ? selectedKinds : (['gap-line'] as TileKind[])
     const minActive = baseKinds.length >= 2 ? 2 : 1
     const mustIncludeRotatedPolyomino =
@@ -101,10 +184,11 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       !baseKinds.includes('polyomino')
     for (let attempt = 0; attempt < 80; attempt += 1) {
       const rng = mulberry32(seed + attempt * 313 + 11)
+      const mustKeepAllSymbols = baseKinds.length >= 3
       let active: TileKind[]
 
       if (baseKinds.length >= 2) {
-        if (attempt < 50) {
+        if (mustKeepAllSymbols || attempt < 50) {
           active = [...baseKinds]
         } else if (attempt < 70) {
           active = shuffle(baseKinds, rng).slice(0, baseKinds.length - 1)
@@ -127,19 +211,29 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         ? generatePuzzle(seed + attempt * 131).edges
         : buildFullEdges()
 
+      let arrowTargets: ArrowTarget[] = []
       let colorSquares: ColorSquare[] = []
       let starTargets: StarTarget[] = []
       let triangleTargets: TriangleTarget[] = []
       let polyominoSymbols: PolyominoSymbol[] = []
+      let negatorTargets: NegatorTarget[] = []
       let solutionPath: Point[] | null = null
 
       if (active.includes('color-squares')) {
-        const desiredColorCount = rng() < 0.5 ? 2 : 3
+        const colorSquarePool = active.includes('stars')
+          ? undefined
+          : buildColorSquarePool(rng)
+        const baseDesiredColorCount = active.includes('stars') ? 2 : rng() < 0.5 ? 2 : 3
+        const desiredColorCount = Math.max(
+          1,
+          Math.min(baseDesiredColorCount, colorSquarePool?.length ?? baseDesiredColorCount)
+        )
         let colorResult = generateColorSquaresForEdges(
           edges,
           seed + attempt * 2001,
           desiredColorCount,
-          baseKinds.length
+          baseKinds.length,
+          colorSquarePool
         )
 
         if (!colorResult && active.includes('gap-line')) {
@@ -148,7 +242,8 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             fullEdges,
             seed + attempt * 2001 + 99,
             desiredColorCount,
-            baseKinds.length
+            baseKinds.length,
+            colorSquarePool
           )
           if (retry) {
             edges = fullEdges
@@ -323,41 +418,24 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         }
       }
 
-      if (active.includes('stars')) {
-        const minPairs =
-          baseKinds.length === 1 && baseKinds[0] === 'stars' ? 2 : 1
-        const starResult = generateStarsForEdges(
-          edges,
-          seed + attempt * 5003,
-          minPairs,
-          active.includes('color-squares') ? colorSquares : [],
-          active.includes('polyomino') ||
-            active.includes('rotated-polyomino') ||
-            active.includes('negative-polyomino')
-            ? polyominoSymbols
-            : [],
-          solutionPath ?? undefined
-        )
-        if (starResult) {
-          starTargets = starResult.stars
-          solutionPath = solutionPath ?? starResult.solutionPath
-        } else {
-          active = active.filter((kind) => kind !== 'stars')
-        }
-      }
-
       if (active.includes('triangles')) {
         const blockedTriangleCells = new Set<string>([
           ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
-          ...starTargets.map((star) => `${star.cellX},${star.cellY}`),
           ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
         ])
+        const preferredTriangleColors = active.includes('stars')
+          ? Array.from(new Set([
+              ...colorSquares.map((square) => square.color),
+              ...polyominoSymbols.map((symbol) => symbol.color),
+            ])).slice(0, MAX_SYMBOL_COLORS)
+          : undefined
         const triangleResult = generateTrianglesForEdges(
           edges,
           seed + attempt * 23011,
           baseKinds.length,
           blockedTriangleCells,
           active.includes('stars'),
+          preferredTriangleColors,
           solutionPath ?? undefined
         )
         if (triangleResult) {
@@ -368,18 +446,177 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         }
       }
 
+      if (active.includes('arrows')) {
+        const blockedArrowCells = new Set<string>([
+          ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
+          ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+          ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
+        ])
+        const preferredArrowColors = active.includes('stars')
+          ? Array.from(new Set([
+              ...colorSquares.map((square) => square.color),
+              ...triangleTargets.map((triangle) => triangle.color),
+              ...polyominoSymbols.map((symbol) => symbol.color),
+            ])).slice(0, MAX_SYMBOL_COLORS)
+          : undefined
+        const arrowResult = generateArrowsForEdges(
+          edges,
+          seed + attempt * 26053,
+          baseKinds.length,
+          blockedArrowCells,
+          active.includes('stars'),
+          preferredArrowColors,
+          solutionPath ?? undefined
+        )
+        if (arrowResult) {
+          arrowTargets = arrowResult.arrows
+          solutionPath = solutionPath ?? arrowResult.solutionPath
+        } else {
+          active = active.filter((kind) => kind !== 'arrows')
+        }
+      }
+
+      if (active.includes('stars')) {
+        const minPairs =
+          baseKinds.length === 1 && baseKinds[0] === 'stars'
+            ? 3
+            : baseKinds.length <= 2
+              ? 2
+              : 1
+        const starResult = generateStarsForEdges(
+          edges,
+          seed + attempt * 5003,
+          minPairs,
+          active.includes('arrows') ? arrowTargets : [],
+          active.includes('color-squares') ? colorSquares : [],
+          active.includes('polyomino') ||
+            active.includes('rotated-polyomino') ||
+            active.includes('negative-polyomino')
+            ? polyominoSymbols
+            : [],
+          active.includes('triangles') ? triangleTargets : [],
+          active.includes('negator'),
+          solutionPath ?? undefined,
+          baseKinds.length
+        )
+        if (starResult) {
+          starTargets = starResult.stars
+          solutionPath = solutionPath ?? starResult.solutionPath
+        } else {
+          active = active.filter((kind) => kind !== 'stars')
+        }
+      }
+
       let hexTargets: HexTarget[] = []
       if (active.includes('hexagon')) {
         hexTargets = generateHexTargets(edges, seed + attempt * 7, solutionPath ?? undefined)
       }
 
+      if (active.includes('negator')) {
+        const removableSymbolCount =
+          arrowTargets.length +
+          colorSquares.length +
+          starTargets.length +
+          triangleTargets.length +
+          polyominoSymbols.length +
+          hexTargets.length
+        if (removableSymbolCount === 0) {
+          active = active.filter((kind) => kind !== 'negator')
+        }
+        if (active.includes('negator')) {
+          const usedNegatorCells = new Set<string>([
+            ...arrowTargets.map((arrow) => `${arrow.cellX},${arrow.cellY}`),
+            ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
+            ...starTargets.map((star) => `${star.cellX},${star.cellY}`),
+            ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+            ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
+          ])
+          const preferredNegatorColors = active.includes('stars')
+            ? Array.from(new Set([
+                ...arrowTargets.map((arrow) => arrow.color),
+                ...colorSquares.map((square) => square.color),
+                ...starTargets.map((star) => star.color),
+                ...triangleTargets.map((triangle) => triangle.color),
+                ...polyominoSymbols.map((symbol) => symbol.color),
+              ])).slice(0, MAX_SYMBOL_COLORS)
+            : []
+          const negatorResult = generateNegatorsForEdges(
+            edges,
+            seed + attempt * 29017,
+            usedNegatorCells,
+            arrowTargets,
+            colorSquares,
+            starTargets,
+            triangleTargets,
+            polyominoSymbols,
+            hexTargets,
+            active.includes('stars'),
+            preferredNegatorColors,
+            solutionPath ?? undefined
+          )
+          if (negatorResult) {
+            negatorTargets = negatorResult.negators
+            solutionPath = solutionPath ?? negatorResult.solutionPath
+          } else {
+            active = active.filter((kind) => kind !== 'negator')
+          }
+        }
+      }
+
+      if (
+        active.includes('stars') &&
+        countSymbolColors(
+          arrowTargets,
+          colorSquares,
+          starTargets,
+          triangleTargets,
+          polyominoSymbols,
+          negatorTargets,
+          true
+        ) > MAX_SYMBOL_COLORS
+      ) {
+        continue
+      }
+
+      if (mustKeepAllSymbols && baseKinds.some((kind) => !active.includes(kind))) {
+        continue
+      }
+
       if (active.length < minActive) continue
 
+      if (solutionPath && solutionPath.length >= 2) {
+        const usedEdgesForSolution = edgesFromPath(solutionPath)
+        const quickEvaluation = evaluatePathConstraints(solutionPath, usedEdgesForSolution, active, {
+          arrowTargets,
+          colorSquares,
+          starTargets,
+          triangleTargets,
+          polyominoSymbols,
+          negatorTargets,
+          hexTargets,
+        })
+        if (quickEvaluation.ok) {
+          return {
+            puzzle: { edges },
+            activeKinds: active,
+            arrowTargets,
+            colorSquares,
+            starTargets,
+            triangleTargets,
+            polyominoSymbols,
+            negatorTargets,
+            hexTargets,
+          }
+        }
+      }
+
       const combinedSolution = findAnyValidSolutionPath(edges, active, {
+        arrowTargets,
         colorSquares,
         starTargets,
         triangleTargets,
         polyominoSymbols,
+        negatorTargets,
         hexTargets,
       })
       if (!combinedSolution) continue
@@ -387,22 +624,35 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       return {
         puzzle: { edges },
         activeKinds: active,
+        arrowTargets,
         colorSquares,
         starTargets,
         triangleTargets,
         polyominoSymbols,
+        negatorTargets,
         hexTargets,
       }
     }
 
+    const fallbackKinds = baseKinds.filter((kind) => kind !== 'negator')
+    const safeFallbackKinds =
+      fallbackKinds.length > 0
+        ? fallbackKinds.slice(0, Math.min(fallbackKinds.length, Math.max(minActive, 1)))
+        : (['gap-line'] as TileKind[])
+    const fallbackPuzzle = generatePuzzle(seed)
+    const fallbackHexTargets = safeFallbackKinds.includes('hexagon')
+      ? generateHexTargets(fallbackPuzzle.edges, seed + 7)
+      : []
     return {
-      puzzle: generatePuzzle(seed),
-      activeKinds: baseKinds.slice(0, Math.min(baseKinds.length, Math.max(minActive, 1))),
+      puzzle: fallbackPuzzle,
+      activeKinds: safeFallbackKinds,
+      arrowTargets: [],
       colorSquares: [],
       starTargets: [],
       triangleTargets: [],
       polyominoSymbols: [],
-      hexTargets: [],
+      negatorTargets: [],
+      hexTargets: fallbackHexTargets,
     }
   }, [seed, selectedKinds])
 
@@ -418,12 +668,22 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       ? selectedTiles[0].description
       : `Symbols: ${selectedTiles.map((tile) => tile.label).join(', ')}`
 
+  const clearSolveTrace = () => {
+    if (solveTraceTimerRef.current === null) return
+    window.clearInterval(solveTraceTimerRef.current)
+    solveTraceTimerRef.current = null
+  }
+
+  useEffect(() => () => clearSolveTrace(), [])
+
   const resetPath = () => {
+    clearSolveTrace()
     setPath([])
     setIsDrawing(false)
     setLocked(false)
     setCursor(null)
     setResult('idle')
+    setEliminations(emptyEliminations())
   }
 
   const handleNewPuzzle = () => {
@@ -431,8 +691,30 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
     resetPath()
   }
 
+  const handleViewLastSolved = () => {
+    if (!lastSolved) return
+    clearSolveTrace()
+    setSeed(lastSolved.seed)
+    setPath(lastSolved.path.map((point) => ({ ...point })))
+    setEliminations({
+      negators: [...lastSolved.eliminations.negators],
+      arrows: [...lastSolved.eliminations.arrows],
+      colorSquares: [...lastSolved.eliminations.colorSquares],
+      stars: [...lastSolved.eliminations.stars],
+      triangles: [...lastSolved.eliminations.triangles],
+      polyominoes: [...lastSolved.eliminations.polyominoes],
+      hexagons: [...lastSolved.eliminations.hexagons],
+    })
+    setIsDrawing(false)
+    setLocked(true)
+    setCursor(null)
+    setResult('success')
+  }
+
   const handleStartClick = () => {
     if (locked) return
+    clearSolveTrace()
+    setEliminations(emptyEliminations())
     setIsDrawing(true)
     setPath([START])
     setCursor(START)
@@ -520,6 +802,56 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
     resetPath()
   }
 
+  const applySolvedPath = (solvedPath: Point[]) => {
+    const usedEdges = new Set<string>()
+    for (let i = 1; i < solvedPath.length; i += 1) {
+      usedEdges.add(edgeKey(solvedPath[i - 1], solvedPath[i]))
+    }
+
+    const evaluation = evaluatePathConstraints(solvedPath, usedEdges, activeKinds, {
+      arrowTargets,
+      colorSquares,
+      starTargets,
+      triangleTargets,
+      polyominoSymbols,
+      negatorTargets,
+      hexTargets,
+    })
+    if (!evaluation.ok) {
+      setResult('fail')
+      setLocked(false)
+      setIsDrawing(false)
+      setCursor(null)
+      setEliminations(emptyEliminations())
+      return false
+    }
+
+    const solvedEliminations = mapEliminations(
+      evaluation.eliminatedNegatorIndexes,
+      evaluation.eliminatedSymbols
+    )
+    setPath(solvedPath.map((point) => ({ ...point })))
+    setEliminations(solvedEliminations)
+    setLastSolved({
+      seed,
+      path: solvedPath.map((point) => ({ ...point })),
+      eliminations: {
+        negators: [...solvedEliminations.negators],
+        arrows: [...solvedEliminations.arrows],
+        colorSquares: [...solvedEliminations.colorSquares],
+        stars: [...solvedEliminations.stars],
+        triangles: [...solvedEliminations.triangles],
+        polyominoes: [...solvedEliminations.polyominoes],
+        hexagons: [...solvedEliminations.hexagons],
+      },
+    })
+    setResult('success')
+    setLocked(true)
+    setIsDrawing(false)
+    setCursor(null)
+    return true
+  }
+
   const handleCheck = () => {
     if (locked || result === 'success') return
     const last = path[path.length - 1]
@@ -529,75 +861,47 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
     const atEnd = last.x === END.x && last.y === END.y
     if (!isConnected || !atEnd) return
 
-    const usedEdges = new Set<string>()
-    for (let i = 1; i < path.length; i += 1) {
-      usedEdges.add(edgeKey(path[i - 1], path[i]))
+    applySolvedPath(path)
+  }
+
+  const handleSolve = () => {
+    clearSolveTrace()
+    const solved = findAnyValidSolutionPath(puzzle.edges, activeKinds, {
+      arrowTargets,
+      colorSquares,
+      starTargets,
+      triangleTargets,
+      polyominoSymbols,
+      negatorTargets,
+      hexTargets,
+    })
+    if (!solved || solved.length < 2) {
+      setResult('fail')
+      setLocked(false)
+      setIsDrawing(false)
+      setCursor(null)
+      setEliminations(emptyEliminations())
+      return
     }
 
-    if (activeKinds.includes('hexagon')) {
-      const collected = checkHexTargets(path, usedEdges, hexTargets)
-      if (!collected) {
-        console.log('Solution failed: not all hexagons collected.')
-        setResult('fail')
-        setIsDrawing(false)
-        setCursor(null)
-        return
-      }
-    }
-
-    if (activeKinds.includes('color-squares')) {
-      if (!checkColorSquares(usedEdges, colorSquares)) {
-        console.log('Solution failed: color squares share a region.')
-        setResult('fail')
-        setIsDrawing(false)
-        setCursor(null)
-        return
-      }
-    }
-
-    if (activeKinds.includes('stars')) {
-      if (!checkStars(usedEdges, starTargets, colorSquares, polyominoSymbols)) {
-        console.log('Solution failed: star pairing mismatch.')
-        setResult('fail')
-        setIsDrawing(false)
-        setCursor(null)
-        return
-      }
-    }
-
-    if (activeKinds.includes('triangles')) {
-      if (!checkTriangles(usedEdges, triangleTargets)) {
-        console.log('Solution failed: triangle edge touch counts do not match.')
-        setResult('fail')
-        setIsDrawing(false)
-        setCursor(null)
-        return
-      }
-    }
-
-    if (
-      activeKinds.includes('polyomino') ||
-      activeKinds.includes('rotated-polyomino') ||
-      activeKinds.includes('negative-polyomino')
-    ) {
-      if (!checkPolyominoes(usedEdges, polyominoSymbols)) {
-        console.log('Solution failed: polyomino region cannot be tiled by given shapes.')
-        setResult('fail')
-        setIsDrawing(false)
-        setCursor(null)
-        return
-      }
-    }
-
-    setResult('success')
+    const solvedPath = solved.map((point) => ({ ...point }))
+    setEliminations(emptyEliminations())
+    setResult('idle')
     setLocked(true)
     setIsDrawing(false)
     setCursor(null)
+    setPath([solvedPath[0]])
 
-    window.setTimeout(() => {
-      setSeed(Math.floor(Math.random() * 1_000_000_000))
-      resetPath()
-    }, 650)
+    let revealIndex = 1
+    solveTraceTimerRef.current = window.setInterval(() => {
+      if (revealIndex >= solvedPath.length) {
+        clearSolveTrace()
+        applySolvedPath(solvedPath)
+        return
+      }
+      setPath(solvedPath.slice(0, revealIndex + 1).map((point) => ({ ...point })))
+      revealIndex += 1
+    }, 70)
   }
 
   const last = path[path.length - 1]
@@ -622,6 +926,18 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
   ]
     .filter(Boolean)
     .join(' ')
+  const eliminated = useMemo(
+    () => ({
+      negators: new Set(eliminations.negators),
+      arrows: new Set(eliminations.arrows),
+      colorSquares: new Set(eliminations.colorSquares),
+      stars: new Set(eliminations.stars),
+      triangles: new Set(eliminations.triangles),
+      polyominoes: new Set(eliminations.polyominoes),
+      hexagons: new Set(eliminations.hexagons),
+    }),
+    [eliminations]
+  )
 
   return (
     <div className="app puzzle">
@@ -677,13 +993,64 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           </g>
           {hexTargets.length > 0 && (
             <g className="hexes">
-              {hexTargets.map((target) => (
+              {hexTargets.map((target, index) => (
                 <polygon
                   key={`hex-${target.id}`}
                   className="hexagon"
                   points={hexPoints(target.position, 0.12)}
+                  style={eliminated.hexagons.has(index) ? { opacity: 0.24 } : undefined}
                 />
               ))}
+            </g>
+          )}
+          {arrowTargets.length > 0 && (
+            <g className="arrows">
+              {arrowTargets.map((target, index) => {
+                const step = 0.12
+                const lastOffset = 0.16
+                const firstOffset = lastOffset - (target.count - 1) * step
+                const headOffsets = Array.from(
+                  { length: target.count },
+                  (_, headIndex) => firstOffset + headIndex * step
+                )
+                const isDiagonal =
+                  target.direction === 'up-right' ||
+                  target.direction === 'down-right' ||
+                  target.direction === 'down-left' ||
+                  target.direction === 'up-left'
+                const localNudgeX = isDiagonal && target.count === 4 ? 0.06 : 0
+                const headTailX = -0.09
+                const headTipX = 0.11
+                const headHalfHeight = 0.2
+                const shaftStartX = -0.24
+                const shaftEndX = headTipX + headOffsets[headOffsets.length - 1] - 0.06
+                return (
+                  <g
+                    key={`arrow-${target.cellX}-${target.cellY}-${index}`}
+                    transform={`translate(${target.cellX + 0.5} ${target.cellY + 0.5}) rotate(${arrowDirectionAngle(target.direction)})`}
+                    style={eliminated.arrows.has(index) ? { opacity: 0.24 } : undefined}
+                  >
+                    <g transform={localNudgeX !== 0 ? `translate(${localNudgeX} 0)` : undefined}>
+                      <line
+                        className="arrow-shaft"
+                        x1={shaftStartX}
+                        y1={0}
+                        x2={shaftEndX}
+                        y2={0}
+                        style={{ stroke: target.color, strokeWidth: 0.064 }}
+                      />
+                      {headOffsets.map((offset, headIndex) => (
+                        <polyline
+                          key={`arrow-head-${headIndex}`}
+                          className="arrow-head"
+                          points={`${headTailX + offset},${-headHalfHeight} ${headTipX + offset},0 ${headTailX + offset},${headHalfHeight}`}
+                          style={{ stroke: target.color, strokeWidth: 0.052 }}
+                        />
+                      ))}
+                    </g>
+                  </g>
+                )
+              })}
             </g>
           )}
           {colorSquares.length > 0 && (
@@ -697,7 +1064,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
                   width={0.34}
                   height={0.34}
                   rx={0.08}
-                  style={{ fill: square.color }}
+                  style={eliminated.colorSquares.has(index) ? { fill: square.color, opacity: 0.24 } : { fill: square.color }}
                 />
               ))}
             </g>
@@ -709,8 +1076,23 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
                   key={`star-${star.cellX}-${star.cellY}-${index}`}
                   className="star"
                   points={starPoints({ x: star.cellX + 0.5, y: star.cellY + 0.5 }, 0.19, 0.135)}
-                  style={{ fill: star.color }}
+                  style={eliminated.stars.has(index) ? { fill: star.color, opacity: 0.24 } : { fill: star.color }}
                 />
+              ))}
+            </g>
+          )}
+          {negatorTargets.length > 0 && (
+            <g className="negators">
+              {negatorTargets.map((target, index) => (
+                <g
+                  key={`negator-${target.cellX}-${target.cellY}-${index}`}
+                  transform={`translate(${target.cellX + 0.5} ${target.cellY + 0.5})`}
+                  style={eliminated.negators.has(index) ? { opacity: 0.24 } : undefined}
+                >
+                  <line className="negator-arm" x1="0" y1="0" x2="0" y2="-0.16" style={{ stroke: target.color }} />
+                  <line className="negator-arm" x1="0" y1="0" x2="0.14" y2="0.085" style={{ stroke: target.color }} />
+                  <line className="negator-arm" x1="0" y1="0" x2="-0.14" y2="0.085" style={{ stroke: target.color }} />
+                </g>
               ))}
             </g>
           )}
@@ -724,7 +1106,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
                     key={`tri-${target.cellX}-${target.cellY}-${index}-${offsetIndex}`}
                     className="triangle-target"
                     points={trianglePoints(target.cellX + 0.5 + offset, target.cellY + 0.5, 0.082)}
-                    style={{ fill: target.color }}
+                    style={eliminated.triangles.has(index) ? { fill: target.color, opacity: 0.24 } : { fill: target.color }}
                   />
                 ))
               })}
@@ -756,7 +1138,15 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
                         y={offsetY + (cell.y - bounds.minY) * unit + gap / 2}
                         width={block}
                         height={block}
-                        style={symbol.negative ? { stroke: symbol.color } : { fill: symbol.color }}
+                        style={
+                          symbol.negative
+                            ? eliminated.polyominoes.has(index)
+                              ? { stroke: symbol.color, opacity: 0.24 }
+                              : { stroke: symbol.color }
+                            : eliminated.polyominoes.has(index)
+                              ? { fill: symbol.color, opacity: 0.24 }
+                              : { fill: symbol.color }
+                        }
                         rx={0}
                       />
                     ))}
@@ -788,6 +1178,12 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       <div className="puzzle-actions">
         <button className="btn primary" onClick={handleNewPuzzle}>
           New puzzle
+        </button>
+        <button className="btn ghost" onClick={handleSolve} disabled={result === 'success'}>
+          Solve
+        </button>
+        <button className="btn ghost" onClick={handleViewLastSolved} disabled={!lastSolved}>
+          Letztes gelöstes Puzzle
         </button>
         <p className="puzzle-hint">Right-click resets the path.</p>
       </div>

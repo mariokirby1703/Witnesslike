@@ -319,6 +319,18 @@
   stroke: none;
 }
 
+.arrow-shaft,
+.arrow-head {
+  fill: none;
+  stroke-linejoin: miter;
+  stroke-linecap: square;
+}
+
+.negator-arm {
+  stroke-width: 0.085;
+  stroke-linecap: square;
+}
+
 .triangle-target {
   fill: #ff8a00;
   stroke: none;
@@ -349,6 +361,28 @@
 
 .tile-star {
   fill: #f08a2f;
+}
+
+.tile-arrow-shaft,
+.tile-arrow-head {
+  fill: none;
+  stroke: #a855f7;
+  stroke-linejoin: miter;
+  stroke-linecap: square;
+}
+
+.tile-arrow-shaft {
+  stroke-width: 10;
+}
+
+.tile-arrow-head {
+  stroke-width: 8;
+}
+
+.tile-negator-arm {
+  stroke: #4f4f4f;
+  stroke-width: 12;
+  stroke-linecap: square;
 }
 
 .tile-triangle {

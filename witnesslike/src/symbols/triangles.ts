@@ -38,6 +38,7 @@ export function generateTrianglesForEdges(
   selectedSymbolCount: number,
   blockedCells: Set<string>,
   starsActive: boolean,
+  preferredColors?: string[],
   preferredPath?: Point[]
 ) {
   const rng = mulberry32(seed)
@@ -82,8 +83,13 @@ export function generateTrianglesForEdges(
 
   let palette = [DEFAULT_TRIANGLE_COLOR]
   if (starsActive) {
-    const desiredColors = Math.min(4, Math.max(2, 2 + randInt(rng, 3)))
-    palette = shuffle(COLOR_PALETTE, rng).slice(0, desiredColors)
+    const normalizedPreferred = Array.from(new Set(preferredColors ?? []))
+    if (normalizedPreferred.length > 0) {
+      palette = normalizedPreferred.slice(0, 3)
+    } else {
+      const desiredColors = 2
+      palette = shuffle(COLOR_PALETTE, rng).slice(0, desiredColors)
+    }
     if (palette.length === 0) palette = [DEFAULT_TRIANGLE_COLOR]
   }
 

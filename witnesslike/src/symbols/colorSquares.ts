@@ -39,22 +39,28 @@ export function generateColorSquaresForEdges(
   edges: Set<string>,
   seed: number,
   desiredColorCount: number,
-  selectedSymbolCount = 1
+  selectedSymbolCount = 1,
+  colorPool?: string[]
 ) {
+  const availableColors =
+    colorPool && colorPool.length > 0
+      ? Array.from(new Set(colorPool))
+      : COLOR_PALETTE
+  const effectiveColorCount = Math.max(1, Math.min(desiredColorCount, availableColors.length))
   const rng = mulberry32(seed)
   const path = findBestLoopyPathByRegions(edges, rng, 260, 12)
   if (!path) return null
   const regionCount = regionCountForPath(path)
-  if (regionCount < desiredColorCount) return null
+  if (regionCount < effectiveColorCount) return null
 
   for (let attempt = 0; attempt < 60; attempt += 1) {
     const localRng = mulberry32(seed + 4242 + attempt * 97)
     const usedEdges = edgesFromPath(path)
     const regions = buildCellRegions(usedEdges)
     const regionIds = Array.from(new Set(regions.values()))
-    if (regionIds.length < desiredColorCount) continue
+    if (regionIds.length < effectiveColorCount) continue
 
-    const colorCount = desiredColorCount
+    const colorCount = effectiveColorCount
     const minPerColor = colorCount === 2 ? 2 : 1
     const minSquares = colorCount * minPerColor
     const crowdedBoard = selectedSymbolCount >= 3
@@ -74,7 +80,7 @@ export function generateColorSquaresForEdges(
       remaining -= 1
     }
 
-    const palette = shuffle(COLOR_PALETTE, localRng).slice(0, colorCount)
+    const palette = shuffle(availableColors, localRng).slice(0, colorCount)
     const regionCells = new Map<number, Array<{ x: number; y: number }>>()
     for (let y = 0; y < 4; y += 1) {
       for (let x = 0; x < 4; x += 1) {

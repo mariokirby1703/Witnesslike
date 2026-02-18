@@ -243,8 +243,9 @@ function canTileRegion(regionCells: Array<{ x: number; y: number }>, symbols: Po
     return solveExact(0, new Set(Array.from({ length: regionSize }, (_, i) => i)))
   }
 
-  // Negative behavior: negatives subtract from the created positive shape.
-  // So every negative-covered cell must also be covered by at least one positive piece.
+  // Negative behavior: every symbol is mandatory.
+  // Region cells are evaluated by net coverage (positive - negative), and each
+  // cell must end at exactly 1 coverage.
   const positiveCounts = Array.from({ length: regionSize }, () => 0)
   const negativeCounts = Array.from({ length: regionSize }, () => 0)
   const positiveCoverageBySymbol = orderedPlacements.map((placements, symbolIndex) => {
@@ -257,27 +258,38 @@ function canTileRegion(regionCells: Array<{ x: number; y: number }>, symbols: Po
     }
     return coverage
   })
-
-  const canStillSatisfySubtraction = (startIndex: number) => {
-    for (let cell = 0; cell < regionSize; cell += 1) {
-      if (negativeCounts[cell] === 0 || positiveCounts[cell] > 0) continue
-      let canStillBeCovered = false
-      for (let i = startIndex; i < orderedPlacements.length; i += 1) {
-        if (orderedSigns[i] > 0 && positiveCoverageBySymbol[i][cell]) {
-          canStillBeCovered = true
-          break
-        }
+  const negativeCoverageBySymbol = orderedPlacements.map((placements, symbolIndex) => {
+    const coverage = Array.from({ length: regionSize }, () => false)
+    if (orderedSigns[symbolIndex] > 0) return coverage
+    for (const placement of placements) {
+      for (const index of placement) {
+        coverage[index] = true
       }
-      if (!canStillBeCovered) return false
+    }
+    return coverage
+  })
+
+  const canStillReachExactCoverage = (startIndex: number) => {
+    for (let cell = 0; cell < regionSize; cell += 1) {
+      let positivesLeft = 0
+      let negativesLeft = 0
+      for (let i = startIndex; i < orderedPlacements.length; i += 1) {
+        if (orderedSigns[i] > 0 && positiveCoverageBySymbol[i][cell]) positivesLeft += 1
+        if (orderedSigns[i] < 0 && negativeCoverageBySymbol[i][cell]) negativesLeft += 1
+      }
+      const net = positiveCounts[cell] - negativeCounts[cell]
+      const minNet = net - negativesLeft
+      const maxNet = net + positivesLeft
+      if (1 < minNet || 1 > maxNet) return false
     }
     return true
   }
 
   const solve = (index: number): boolean => {
-    if (!canStillSatisfySubtraction(index)) return false
+    if (!canStillReachExactCoverage(index)) return false
     if (index >= orderedPlacements.length) {
       for (let cell = 0; cell < regionSize; cell += 1) {
-        if (negativeCounts[cell] > 0 && positiveCounts[cell] === 0) return false
+        if (positiveCounts[cell] - negativeCounts[cell] !== 1) return false
       }
       return true
     }
@@ -323,14 +335,13 @@ export function buildPolyominoPalette(
 ) {
   if (!starsActive) return [DEFAULT_POSITIVE_POLYOMINO_COLOR]
 
-  const squareColors = Array.from(new Set(colorSquares.map((square) => square.color)))
+  const squareColors = Array.from(new Set(colorSquares.map((square) => square.color))).slice(0, 2)
   if (squareColors.length >= 2) return squareColors
 
-  const paletteSize = 2 + randInt(rng, 2)
   const palette = [...squareColors]
   const pool = shuffle(COLOR_PALETTE.filter((color) => !palette.includes(color)), rng)
   for (const color of pool) {
-    if (palette.length >= paletteSize) break
+    if (palette.length >= 2) break
     palette.push(color)
   }
   return palette.length > 0 ? palette : [DEFAULT_POSITIVE_POLYOMINO_COLOR]
