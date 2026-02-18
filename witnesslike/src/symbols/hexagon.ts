@@ -8,9 +8,19 @@ export type HexTarget = {
   edgeKey?: string
 }
 
-export function generateHexTargets(edges: Set<string>, seed: number) {
+function isPathCompatible(path: Point[], edges: Set<string>) {
+  for (let i = 1; i < path.length; i += 1) {
+    if (!edges.has(edgeKey(path[i - 1], path[i]))) return false
+  }
+  return true
+}
+
+export function generateHexTargets(edges: Set<string>, seed: number, preferredPath?: Point[]) {
   const rng = mulberry32(seed + 1337)
-  const path = findRandomPath(edges, rng)
+  const path =
+    preferredPath && preferredPath.length >= 2 && isPathCompatible(preferredPath, edges)
+      ? preferredPath
+      : findRandomPath(edges, rng)
   if (!path || path.length < 2) return []
   const edgesOnPath: Array<{ a: Point; b: Point }> = []
   for (let i = 1; i < path.length; i += 1) {

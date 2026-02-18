@@ -86,6 +86,7 @@
   display: grid;
   gap: 0.65rem;
   text-align: center;
+  transition: opacity 0.2s ease, filter 0.2s ease;
 }
 
 .symbol-button {
@@ -111,12 +112,28 @@
 }
 
 .symbol-button.selected {
-  border-color: var(--accent);
-  box-shadow: 0 20px 34px rgba(31, 110, 140, 0.28);
+  border: 2px solid var(--accent);
+  background: linear-gradient(180deg, rgba(47, 143, 178, 0.18), rgba(47, 143, 178, 0.04));
+  box-shadow:
+    0 0 0 3px rgba(31, 110, 140, 0.24),
+    0 22px 36px rgba(31, 110, 140, 0.32);
+  transform: translateY(-2px);
+}
+
+.symbol-button.selected svg {
+  transform: scale(1.05);
 }
 
 .symbol-button.placeholder {
   opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.symbol-button.prereq-locked,
+.symbol-tile.prereq-locked .symbol-button {
+  opacity: 0.35;
+  filter: grayscale(1);
+  border-style: dashed;
   cursor: not-allowed;
 }
 
@@ -128,11 +145,20 @@
 .symbol-label {
   font-size: 0.9rem;
   color: var(--ink-soft);
-  transition: color 0.2s ease;
+  transition: color 0.2s ease, font-weight 0.2s ease;
 }
 
 .symbol-tile:hover .symbol-label {
   color: var(--ink);
+}
+
+.symbol-tile.selected .symbol-label {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.symbol-tile.prereq-locked .symbol-label {
+  color: rgba(18, 25, 29, 0.45);
 }
 
 .tile-stroke {
@@ -293,9 +319,20 @@
   stroke: none;
 }
 
+.triangle-target {
+  fill: #ff8a00;
+  stroke: none;
+}
+
 .polyomino-block {
   fill: #f4c430;
   stroke: none;
+}
+
+.polyomino-block.negative {
+  fill: none;
+  stroke: #1f43ff;
+  stroke-width: 0.028;
 }
 
 .tile-color-bar {
@@ -314,8 +351,18 @@
   fill: #f08a2f;
 }
 
+.tile-triangle {
+  fill: #ff8a00;
+}
+
 .tile-poly {
   fill: #f4c430;
+}
+
+.tile-poly-negative {
+  fill: none;
+  stroke: #1f43ff;
+  stroke-width: 9;
 }
 
 .path {

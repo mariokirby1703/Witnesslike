@@ -21,7 +21,13 @@ const TILES: Tile[] = (() => {
               : index === 3
                 ? 'Stars'
                 : index === 4
-                  ? 'Polyomino'
+                ? 'Polyomino'
+                : index === 5
+                  ? 'Rotated Polyomino'
+                : index === 6
+                    ? 'Negative Polyominoes'
+                    : index === 7
+                      ? 'Triangles'
                 : 'Placeholder',
       description:
         index === 0
@@ -33,7 +39,13 @@ const TILES: Tile[] = (() => {
               : index === 3
                 ? 'Pair stars by color inside each region.'
                 : index === 4
-                  ? 'Outline the exact shape inside the region.'
+                ? 'Outline the exact shape inside the region.'
+                : index === 5
+                  ? 'Outline the shape; rotations count, mirrors do not.'
+                : index === 6
+                    ? 'Subtract this shape from polyomino solutions.'
+                    : index === 7
+                      ? 'Touch each triangle cell edge exactly as many times as shown.'
                 : 'Coming soon.',
       kind:
         index === 0
@@ -45,13 +57,37 @@ const TILES: Tile[] = (() => {
               : index === 3
                 ? 'stars'
                 : index === 4
-                  ? 'polyomino'
+                ? 'polyomino'
+                : index === 5
+                  ? 'rotated-polyomino'
+                : index === 6
+                    ? 'negative-polyomino'
+                    : index === 7
+                      ? 'triangles'
                 : 'placeholder',
-      active: index === 0 || index === 1 || index === 2 || index === 3 || index === 4,
+      active:
+        index === 0 ||
+        index === 1 ||
+        index === 2 ||
+        index === 3 ||
+        index === 4 ||
+        index === 5 ||
+        index === 6 ||
+        index === 7,
     })
   }
   return tiles
 })()
+
+const NEGATIVE_TILE_ID = TILES.find((tile) => tile.kind === 'negative-polyomino')?.id ?? -1
+
+function hasPositivePolySelection(ids: number[]) {
+  return TILES.some(
+    (tile) =>
+      ids.includes(tile.id) &&
+      (tile.kind === 'polyomino' || tile.kind === 'rotated-polyomino')
+  )
+}
 
 function App() {
   const [view, setView] = useState<View>('home')
@@ -66,7 +102,19 @@ function App() {
         onToggle={(tile) => {
           setSelectedIds((prev) => {
             if (prev.includes(tile.id)) {
-              return prev.filter((id) => id !== tile.id)
+              const next = prev.filter((id) => id !== tile.id)
+              const removedPositivePoly =
+                tile.kind === 'polyomino' || tile.kind === 'rotated-polyomino'
+              if (removedPositivePoly && !hasPositivePolySelection(next)) {
+                return next.filter((id) => id !== NEGATIVE_TILE_ID)
+              }
+              return next
+            }
+            if (
+              tile.kind === 'negative-polyomino' &&
+              !hasPositivePolySelection(prev)
+            ) {
+              return prev
             }
             if (prev.length >= 4) return prev
             return [...prev, tile.id]

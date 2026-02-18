@@ -38,7 +38,8 @@ function pathSatisfiesColorSquares(path: Point[], squares: ColorSquare[]) {
 export function generateColorSquaresForEdges(
   edges: Set<string>,
   seed: number,
-  desiredColorCount: number
+  desiredColorCount: number,
+  selectedSymbolCount = 1
 ) {
   const rng = mulberry32(seed)
   const path = findBestLoopyPathByRegions(edges, rng, 260, 12)
@@ -56,8 +57,16 @@ export function generateColorSquaresForEdges(
     const colorCount = desiredColorCount
     const minPerColor = colorCount === 2 ? 2 : 1
     const minSquares = colorCount * minPerColor
-    const baseSquares = colorCount === 2 ? 7 + randInt(localRng, 6) : 9 + randInt(localRng, 7)
-    const totalSquares = Math.min(16, Math.max(minSquares, baseSquares))
+    const crowdedBoard = selectedSymbolCount >= 3
+    const baseSquares = crowdedBoard
+      ? colorCount === 2
+        ? 5 + randInt(localRng, 4)
+        : 6 + randInt(localRng, 4)
+      : colorCount === 2
+        ? 7 + randInt(localRng, 6)
+        : 9 + randInt(localRng, 7)
+    const maxSquares = crowdedBoard ? 10 : 16
+    const totalSquares = Math.min(maxSquares, Math.max(minSquares, baseSquares))
     const counts = Array.from({ length: colorCount }, () => minPerColor)
     let remaining = totalSquares - minSquares
     while (remaining > 0) {

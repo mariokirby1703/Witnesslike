@@ -17,17 +17,22 @@ import {
   shuffle,
   starPoints,
 } from './puzzleUtils'
+import { findAnyValidSolutionPath } from './puzzleSolver'
 import type { ColorSquare } from './symbols/colorSquares'
 import { checkColorSquares, generateColorSquaresForEdges } from './symbols/colorSquares'
 import type { HexTarget } from './symbols/hexagon'
 import { checkHexTargets, generateHexTargets } from './symbols/hexagon'
 import type { StarTarget } from './symbols/stars'
 import { checkStars, generateStarsForEdges } from './symbols/stars'
+import type { TriangleTarget } from './symbols/triangles'
+import { checkTriangles, generateTrianglesForEdges } from './symbols/triangles'
 import type { PolyominoSymbol } from './symbols/polyomino'
 import {
   buildPolyominoPalette,
   checkPolyominoes,
+  generateNegativePolyominoesForEdges,
   generatePolyominoesForEdges,
+  generateRotatedPolyominoesForEdges,
 } from './symbols/polyomino'
 
 type Puzzle = {
@@ -40,6 +45,9 @@ type PuzzlePageProps = {
   selectedTiles: Tile[]
   onBack: () => void
 }
+
+const MAX_POLYOMINO_SYMBOLS = 4
+const MAX_NEGATIVE_POLYOMINO_SYMBOLS = 4
 
 function generatePuzzle(seed: number): Puzzle {
   for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -60,6 +68,11 @@ function pickActiveKinds(kinds: TileKind[], rng: () => number) {
   return shuffle(kinds, rng).slice(0, 2)
 }
 
+function trianglePoints(centerX: number, centerY: number, size: number) {
+  const halfWidth = size * 0.9
+  return `${centerX},${centerY - size} ${centerX - halfWidth},${centerY + size * 0.72} ${centerX + halfWidth},${centerY + size * 0.72}`
+}
+
 function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
   const [seed, setSeed] = useState(() => Math.floor(Math.random() * 1_000_000_000))
   const [path, setPath] = useState<Point[]>([])
@@ -77,9 +90,15 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
   const allEdges = useMemo(() => listAllEdges(), [])
 
   // eslint-disable-next-line react-hooks/preserve-manual-memoization
-  const { puzzle, activeKinds, colorSquares, starTargets, polyominoSymbols, hexTargets } = useMemo(() => {
+  const { puzzle, activeKinds, colorSquares, starTargets, triangleTargets, polyominoSymbols, hexTargets } = useMemo(() => {
     const baseKinds = selectedKinds.length > 0 ? selectedKinds : (['gap-line'] as TileKind[])
     const minActive = baseKinds.length >= 2 ? 2 : 1
+    const mustIncludeRotatedPolyomino =
+      baseKinds.includes('polyomino') && baseKinds.includes('rotated-polyomino')
+    const requireRotatedNegativePolyomino =
+      baseKinds.includes('negative-polyomino') &&
+      baseKinds.includes('rotated-polyomino') &&
+      !baseKinds.includes('polyomino')
     for (let attempt = 0; attempt < 80; attempt += 1) {
       const rng = mulberry32(seed + attempt * 313 + 11)
       let active: TileKind[]
@@ -96,12 +115,21 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         active = [...baseKinds]
       }
 
+      if (
+        active.includes('negative-polyomino') &&
+        !active.includes('polyomino') &&
+        !active.includes('rotated-polyomino')
+      ) {
+        active = active.filter((kind) => kind !== 'negative-polyomino')
+      }
+
       let edges = active.includes('gap-line')
         ? generatePuzzle(seed + attempt * 131).edges
         : buildFullEdges()
 
       let colorSquares: ColorSquare[] = []
       let starTargets: StarTarget[] = []
+      let triangleTargets: TriangleTarget[] = []
       let polyominoSymbols: PolyominoSymbol[] = []
       let solutionPath: Point[] | null = null
 
@@ -110,7 +138,8 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         let colorResult = generateColorSquaresForEdges(
           edges,
           seed + attempt * 2001,
-          desiredColorCount
+          desiredColorCount,
+          baseKinds.length
         )
 
         if (!colorResult && active.includes('gap-line')) {
@@ -118,7 +147,8 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           const retry = generateColorSquaresForEdges(
             fullEdges,
             seed + attempt * 2001 + 99,
-            desiredColorCount
+            desiredColorCount,
+            baseKinds.length
           )
           if (retry) {
             edges = fullEdges
@@ -135,48 +165,161 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         }
       }
 
-      if (active.includes('polyomino')) {
-        const baseUsedCells = new Set<string>(
-          colorSquares.map((square) => `${square.cellX},${square.cellY}`)
-        )
+      if (
+        active.includes('polyomino') ||
+        active.includes('rotated-polyomino') ||
+        active.includes('negative-polyomino')
+      ) {
+        const baseUsedCells = new Set<string>(colorSquares.map((square) => `${square.cellX},${square.cellY}`))
+        let usedPolyCells = new Set(baseUsedCells)
         const polyPalette = buildPolyominoPalette(
           rng,
           colorSquares,
           active.includes('stars')
         )
-        const minRegions =
-          baseKinds.length === 1 && baseKinds[0] === 'polyomino' ? 1 : 1
-        let polyResult = generatePolyominoesForEdges(
-          edges,
-          seed + attempt * 9107,
-          minRegions,
-          new Set(baseUsedCells),
-          polyPalette,
-          solutionPath ?? undefined
-        )
+        const minRegions = 1
 
-        if (!polyResult && active.includes('gap-line')) {
-          const fullEdges = buildFullEdges()
-          const retry = generatePolyominoesForEdges(
-            fullEdges,
-            seed + attempt * 9107 + 31,
-            minRegions,
-            new Set(baseUsedCells),
-            polyPalette,
-            solutionPath ?? undefined
-          )
-          if (retry) {
-            edges = fullEdges
-            polyResult = retry
-            active = active.filter((kind) => kind !== 'gap-line')
+        if (active.includes('polyomino')) {
+          const currentPositiveCount = polyominoSymbols.filter((symbol) => !symbol.negative).length
+          const fixedSlotsLeftRaw = MAX_POLYOMINO_SYMBOLS - currentPositiveCount
+          const reserveForRotated =
+            mustIncludeRotatedPolyomino && active.includes('rotated-polyomino') ? 1 : 0
+          const fixedSlotsLeft = Math.max(0, fixedSlotsLeftRaw - reserveForRotated)
+          if (fixedSlotsLeft <= 0) {
+            active = active.filter((kind) => kind !== 'polyomino')
+          }
+          let usedForFixed = new Set(usedPolyCells)
+          let polyResult =
+            fixedSlotsLeft > 0
+              ? generatePolyominoesForEdges(
+                  edges,
+                  seed + attempt * 9107,
+                  minRegions,
+                  usedForFixed,
+                  polyPalette,
+                  fixedSlotsLeft,
+                  solutionPath ?? undefined
+                )
+              : null
+
+          if (!polyResult && active.includes('gap-line')) {
+            const fullEdges = buildFullEdges()
+            usedForFixed = new Set(usedPolyCells)
+            const retry =
+              fixedSlotsLeft > 0
+                ? generatePolyominoesForEdges(
+                    fullEdges,
+                    seed + attempt * 9107 + 31,
+                    minRegions,
+                    usedForFixed,
+                    polyPalette,
+                    fixedSlotsLeft,
+                    solutionPath ?? undefined
+                  )
+                : null
+            if (retry) {
+              edges = fullEdges
+              polyResult = retry
+              active = active.filter((kind) => kind !== 'gap-line')
+            }
+          }
+
+          if (polyResult) {
+            polyominoSymbols = [...polyominoSymbols, ...polyResult.symbols]
+            usedPolyCells = usedForFixed
+            solutionPath = solutionPath ?? polyResult.solutionPath
+          } else {
+            active = active.filter((kind) => kind !== 'polyomino')
           }
         }
 
-        if (polyResult) {
-          polyominoSymbols = polyResult.symbols
-          solutionPath = solutionPath ?? polyResult.solutionPath
-        } else {
-          active = active.filter((kind) => kind !== 'polyomino')
+        if (active.includes('rotated-polyomino')) {
+          const currentPositiveCount = polyominoSymbols.filter((symbol) => !symbol.negative).length
+          const rotatedSlotsLeft = MAX_POLYOMINO_SYMBOLS - currentPositiveCount
+          if (rotatedSlotsLeft <= 0) {
+            active = active.filter((kind) => kind !== 'rotated-polyomino')
+          }
+          let usedForRotated = new Set(usedPolyCells)
+          let rotatedResult =
+            rotatedSlotsLeft > 0
+              ? generateRotatedPolyominoesForEdges(
+                  edges,
+                  seed + attempt * 12121,
+                  minRegions,
+                  usedForRotated,
+                  polyPalette,
+                  rotatedSlotsLeft,
+                  solutionPath ?? undefined
+                )
+              : null
+
+          if (!rotatedResult && active.includes('gap-line')) {
+            const fullEdges = buildFullEdges()
+            usedForRotated = new Set(usedPolyCells)
+            const retry =
+              rotatedSlotsLeft > 0
+                ? generateRotatedPolyominoesForEdges(
+                    fullEdges,
+                    seed + attempt * 12121 + 31,
+                    minRegions,
+                    usedForRotated,
+                    polyPalette,
+                    rotatedSlotsLeft,
+                    solutionPath ?? undefined
+                  )
+                : null
+            if (retry) {
+              edges = fullEdges
+              rotatedResult = retry
+              active = active.filter((kind) => kind !== 'gap-line')
+            }
+          }
+
+          if (rotatedResult) {
+            polyominoSymbols = [...polyominoSymbols, ...rotatedResult.symbols]
+            usedPolyCells = usedForRotated
+            solutionPath = solutionPath ?? rotatedResult.solutionPath
+          } else {
+            active = active.filter((kind) => kind !== 'rotated-polyomino')
+          }
+        }
+
+        if (mustIncludeRotatedPolyomino) {
+          if (!active.includes('rotated-polyomino')) continue
+          if (!polyominoSymbols.some((symbol) => symbol.rotatable)) continue
+        }
+
+        if (active.includes('negative-polyomino')) {
+          const currentPositiveCount = polyominoSymbols.filter((symbol) => !symbol.negative).length
+          const extraPositiveSlots = Math.max(0, MAX_POLYOMINO_SYMBOLS - currentPositiveCount)
+          if (extraPositiveSlots <= 0) {
+            active = active.filter((kind) => kind !== 'negative-polyomino')
+          } else {
+            const negativeResult = generateNegativePolyominoesForEdges(
+              edges,
+              seed + attempt * 17041,
+              polyominoSymbols.filter((symbol) => !symbol.negative),
+              usedPolyCells,
+              polyPalette,
+              active.includes('stars'),
+              active.includes('rotated-polyomino'),
+              requireRotatedNegativePolyomino,
+              MAX_NEGATIVE_POLYOMINO_SYMBOLS,
+              extraPositiveSlots,
+              solutionPath ?? undefined
+            )
+
+            if (negativeResult) {
+              polyominoSymbols = [
+                ...polyominoSymbols,
+                ...negativeResult.pairedPositiveSymbols,
+                ...negativeResult.negativeSymbols,
+              ]
+              solutionPath = solutionPath ?? negativeResult.solutionPath
+            } else {
+              active = active.filter((kind) => kind !== 'negative-polyomino')
+            }
+          }
         }
       }
 
@@ -188,7 +331,11 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           seed + attempt * 5003,
           minPairs,
           active.includes('color-squares') ? colorSquares : [],
-          active.includes('polyomino') ? polyominoSymbols : [],
+          active.includes('polyomino') ||
+            active.includes('rotated-polyomino') ||
+            active.includes('negative-polyomino')
+            ? polyominoSymbols
+            : [],
           solutionPath ?? undefined
         )
         if (starResult) {
@@ -199,18 +346,50 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         }
       }
 
+      if (active.includes('triangles')) {
+        const blockedTriangleCells = new Set<string>([
+          ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
+          ...starTargets.map((star) => `${star.cellX},${star.cellY}`),
+          ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
+        ])
+        const triangleResult = generateTrianglesForEdges(
+          edges,
+          seed + attempt * 23011,
+          baseKinds.length,
+          blockedTriangleCells,
+          active.includes('stars'),
+          solutionPath ?? undefined
+        )
+        if (triangleResult) {
+          triangleTargets = triangleResult.triangles
+          solutionPath = solutionPath ?? triangleResult.solutionPath
+        } else {
+          active = active.filter((kind) => kind !== 'triangles')
+        }
+      }
+
       let hexTargets: HexTarget[] = []
       if (active.includes('hexagon')) {
-        hexTargets = generateHexTargets(edges, seed + attempt * 7)
+        hexTargets = generateHexTargets(edges, seed + attempt * 7, solutionPath ?? undefined)
       }
 
       if (active.length < minActive) continue
+
+      const combinedSolution = findAnyValidSolutionPath(edges, active, {
+        colorSquares,
+        starTargets,
+        triangleTargets,
+        polyominoSymbols,
+        hexTargets,
+      })
+      if (!combinedSolution) continue
 
       return {
         puzzle: { edges },
         activeKinds: active,
         colorSquares,
         starTargets,
+        triangleTargets,
         polyominoSymbols,
         hexTargets,
       }
@@ -221,6 +400,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       activeKinds: baseKinds.slice(0, Math.min(baseKinds.length, Math.max(minActive, 1))),
       colorSquares: [],
       starTargets: [],
+      triangleTargets: [],
       polyominoSymbols: [],
       hexTargets: [],
     }
@@ -385,7 +565,21 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       }
     }
 
-    if (activeKinds.includes('polyomino')) {
+    if (activeKinds.includes('triangles')) {
+      if (!checkTriangles(usedEdges, triangleTargets)) {
+        console.log('Solution failed: triangle edge touch counts do not match.')
+        setResult('fail')
+        setIsDrawing(false)
+        setCursor(null)
+        return
+      }
+    }
+
+    if (
+      activeKinds.includes('polyomino') ||
+      activeKinds.includes('rotated-polyomino') ||
+      activeKinds.includes('negative-polyomino')
+    ) {
       if (!checkPolyominoes(usedEdges, polyominoSymbols)) {
         console.log('Solution failed: polyomino region cannot be tiled by given shapes.')
         setResult('fail')
@@ -520,26 +714,49 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
               ))}
             </g>
           )}
+          {triangleTargets.length > 0 && (
+            <g className="triangles">
+              {triangleTargets.map((target, index) => {
+                const offsets =
+                  target.count === 1 ? [0] : target.count === 2 ? [-0.095, 0.095] : [-0.165, 0, 0.165]
+                return offsets.map((offset, offsetIndex) => (
+                  <polygon
+                    key={`tri-${target.cellX}-${target.cellY}-${index}-${offsetIndex}`}
+                    className="triangle-target"
+                    points={trianglePoints(target.cellX + 0.5 + offset, target.cellY + 0.5, 0.082)}
+                    style={{ fill: target.color }}
+                  />
+                ))
+              })}
+            </g>
+          )}
           {polyominoSymbols.length > 0 && (
             <g className="polyominoes">
               {polyominoSymbols.map((symbol, index) => {
                 const bounds = shapeBounds(symbol.shape.cells)
                 const unit = 0.145
-                const gap = 0.018
+                const gap = symbol.negative ? 0.056 : 0.036
                 const block = unit - gap
                 const offsetX = symbol.cellX + 0.5 - (bounds.width * unit) / 2
                 const offsetY = symbol.cellY + 0.5 - (bounds.height * unit) / 2
+                const centerX = symbol.cellX + 0.5
+                const centerY = symbol.cellY + 0.5
                 return (
-                  <g key={`poly-${symbol.cellX}-${symbol.cellY}-${index}`}>
+                  <g
+                    key={`poly-${symbol.cellX}-${symbol.cellY}-${index}`}
+                    transform={
+                      symbol.rotatable ? `rotate(12 ${centerX} ${centerY})` : undefined
+                    }
+                  >
                     {symbol.shape.cells.map((cell, cellIndex) => (
                       <rect
                         key={`poly-cell-${cellIndex}`}
-                        className="polyomino-block"
+                        className={`polyomino-block ${symbol.negative ? 'negative' : ''}`}
                         x={offsetX + (cell.x - bounds.minX) * unit + gap / 2}
                         y={offsetY + (cell.y - bounds.minY) * unit + gap / 2}
                         width={block}
                         height={block}
-                        style={{ fill: symbol.color }}
+                        style={symbol.negative ? { stroke: symbol.color } : { fill: symbol.color }}
                         rx={0}
                       />
                     ))}

@@ -1,4 +1,13 @@
-export type TileKind = 'gap-line' | 'hexagon' | 'color-squares' | 'stars' | 'polyomino' | 'placeholder'
+export type TileKind =
+  | 'gap-line'
+  | 'hexagon'
+  | 'color-squares'
+  | 'stars'
+  | 'triangles'
+  | 'polyomino'
+  | 'rotated-polyomino'
+  | 'negative-polyomino'
+  | 'placeholder'
 
 export type Tile = {
   id: number
@@ -32,8 +41,8 @@ function SymbolTile({ kind }: { kind: TileKind }) {
   if (kind === 'gap-line') {
     return (
       <svg viewBox="0 0 100 100" aria-hidden="true">
-        <rect x="12" y="42" width="76" height="16" rx="6" className="tile-stroke" />
-        <rect x="46" y="38" width="8" height="24" rx="2" className="tile-gap" />
+        <rect x="12" y="42" width="32" height="16" rx="0" className="tile-stroke" />
+        <rect x="56" y="42" width="32" height="16" rx="0" className="tile-stroke" />
       </svg>
     )
   }
@@ -84,6 +93,40 @@ function SymbolTile({ kind }: { kind: TileKind }) {
     )
   }
 
+  if (kind === 'triangles') {
+    return (
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <polygon points="0,76 14,50 28,76" className="tile-triangle" />
+        <polygon points="36,76 50,50 64,76" className="tile-triangle" />
+        <polygon points="72,76 86,50 100,76" className="tile-triangle" />
+      </svg>
+    )
+  }
+
+  if (kind === 'rotated-polyomino') {
+    return (
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <g transform="rotate(12 50 50)">
+          <rect x="9" y="24" width="25" height="25" rx="0" className="tile-poly" />
+          <rect x="39" y="24" width="25" height="25" rx="0" className="tile-poly" />
+          <rect x="69" y="24" width="25" height="25" rx="0" className="tile-poly" />
+          <rect x="9" y="54" width="25" height="25" rx="0" className="tile-poly" />
+        </g>
+      </svg>
+    )
+  }
+
+  if (kind === 'negative-polyomino') {
+    return (
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <rect x="39" y="20" width="22" height="22" rx="0" className="tile-poly-negative" />
+        <rect x="6" y="56" width="22" height="22" rx="0" className="tile-poly-negative" />
+        <rect x="39" y="56" width="22" height="22" rx="0" className="tile-poly-negative" />
+        <rect x="72" y="56" width="22" height="22" rx="0" className="tile-poly-negative" />
+      </svg>
+    )
+  }
+
   return (
     <svg viewBox="0 0 100 100" aria-hidden="true">
       <rect x="20" y="20" width="60" height="60" rx="18" className="tile-stroke muted" />
@@ -95,6 +138,11 @@ function SymbolTile({ kind }: { kind: TileKind }) {
 function HomePage({ tiles, selectedIds, onToggle, onStart }: HomePageProps) {
   const selectedCount = selectedIds.length
   const maxReached = selectedCount >= 4
+  const selectedKinds = new Set(
+    tiles
+      .filter((tile) => selectedIds.includes(tile.id))
+      .map((tile) => tile.kind)
+  )
   return (
     <div className="app home">
       <header className="home-hero">
@@ -105,28 +153,34 @@ function HomePage({ tiles, selectedIds, onToggle, onStart }: HomePageProps) {
         </div>
       </header>
       <section className="symbol-grid" aria-label="Symbol selection">
-        {tiles.map((tile) => (
-          <div key={tile.id} className="symbol-tile">
-            {(() => {
-              const isSelected = selectedIds.includes(tile.id)
-              const isDisabled = !tile.active || (!isSelected && maxReached)
-              return (
+        {tiles.map((tile) => {
+          const isSelected = selectedIds.includes(tile.id)
+          const missingPolyPrereq =
+            tile.kind === 'negative-polyomino' &&
+            !isSelected &&
+            !selectedKinds.has('polyomino') &&
+            !selectedKinds.has('rotated-polyomino')
+          const isDisabled = !tile.active || (!isSelected && maxReached) || missingPolyPrereq
+          return (
+          <div
+            key={tile.id}
+            className={`symbol-tile ${isSelected ? 'selected' : ''} ${missingPolyPrereq ? 'prereq-locked' : ''}`}
+          >
             <button
               type="button"
               className={`symbol-button ${tile.active ? 'active' : 'placeholder'} ${
                 isSelected ? 'selected' : ''
-              }`}
+              } ${missingPolyPrereq ? 'prereq-locked' : ''}`}
               onClick={tile.active ? () => onToggle(tile) : undefined}
               disabled={isDisabled}
               aria-label={tile.label}
             >
               <SymbolTile kind={tile.kind} />
             </button>
-              )
-            })()}
             <span className="symbol-label">{tile.label}</span>
           </div>
-        ))}
+          )
+        })}
       </section>
       <section className="home-actions">
         <div>
