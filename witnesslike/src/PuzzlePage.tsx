@@ -21,19 +21,35 @@ import {
   shuffle,
   starPoints,
 } from './puzzleUtils'
-import { evaluatePathConstraints, findAnyValidSolutionPath } from './puzzleSolver'
+import {
+  type EliminatedSymbolRef,
+  evaluatePathConstraints,
+  findAnyValidSolutionPath,
+} from './puzzleSolver'
 import type { ArrowTarget } from './symbols/arrows'
 import { arrowDirectionAngle, generateArrowsForEdges } from './symbols/arrows'
 import type { ColorSquare } from './symbols/colorSquares'
 import { generateColorSquaresForEdges } from './symbols/colorSquares'
+import type { CardinalTarget } from './symbols/cardinal'
+import { generateCardinalsForEdges } from './symbols/cardinal'
 import type { HexTarget } from './symbols/hexagon'
 import { generateHexTargets } from './symbols/hexagon'
 import type { NegatorTarget } from './symbols/negator'
 import { generateNegatorsForEdges } from './symbols/negator'
+import type { MinesweeperNumberTarget } from './symbols/minesweeperNumbers'
+import {
+  generateMinesweeperNumbersForEdges,
+  minesweeperDigitPixels,
+} from './symbols/minesweeperNumbers'
 import type { StarTarget } from './symbols/stars'
 import { generateStarsForEdges } from './symbols/stars'
 import type { TriangleTarget } from './symbols/triangles'
 import { generateTrianglesForEdges } from './symbols/triangles'
+import type { WaterDropletTarget } from './symbols/waterDroplet'
+import {
+  generateWaterDropletsForEdges,
+  waterDropletDirectionAngle,
+} from './symbols/waterDroplet'
 import type { PolyominoSymbol } from './symbols/polyomino'
 import {
   buildPolyominoPalette,
@@ -60,6 +76,7 @@ const GENERATION_SOLVER_VISIT_BUDGET_HEAVY = 1400
 const GENERATION_SOLVER_VISIT_BUDGET_LIGHT = 2600
 const GENERATION_POLY_ONLY_SOLVER_VISIT_BUDGET = 2200
 const MANUAL_SOLVER_VISIT_BUDGET = 12000
+const MANUAL_SOLVER_VISIT_BUDGET_FALLBACK = 80000
 const GENERATION_RECOVERY_SOLVER_VISIT_BUDGET = 6000
 const MAX_PENDING_RECOVERY_CANDIDATES = 5
 const AUTO_SOLVE_BASE_DURATION_MS = 320
@@ -76,6 +93,9 @@ type Eliminations = {
   colorSquares: number[]
   stars: number[]
   triangles: number[]
+  minesweeper: number[]
+  waterDroplets: number[]
+  cardinals: number[]
   polyominoes: number[]
   hexagons: number[]
 }
@@ -87,6 +107,9 @@ function emptyEliminations(): Eliminations {
     colorSquares: [],
     stars: [],
     triangles: [],
+    minesweeper: [],
+    waterDroplets: [],
+    cardinals: [],
     polyominoes: [],
     hexagons: [],
   }
@@ -94,14 +117,7 @@ function emptyEliminations(): Eliminations {
 
 function mapEliminations(
   eliminatedNegatorIndexes: number[],
-  eliminatedSymbols: Array<
-    { kind: 'arrow'; index: number } |
-    { kind: 'color-square'; index: number } |
-    { kind: 'star'; index: number } |
-    { kind: 'triangle'; index: number } |
-    { kind: 'polyomino'; index: number } |
-    { kind: 'hexagon'; index: number }
-  >
+  eliminatedSymbols: EliminatedSymbolRef[]
 ): Eliminations {
   const mapped = emptyEliminations()
   mapped.negators = [...eliminatedNegatorIndexes]
@@ -110,6 +126,9 @@ function mapEliminations(
     if (symbol.kind === 'color-square') mapped.colorSquares.push(symbol.index)
     if (symbol.kind === 'star') mapped.stars.push(symbol.index)
     if (symbol.kind === 'triangle') mapped.triangles.push(symbol.index)
+    if (symbol.kind === 'minesweeper') mapped.minesweeper.push(symbol.index)
+    if (symbol.kind === 'water-droplet') mapped.waterDroplets.push(symbol.index)
+    if (symbol.kind === 'cardinal') mapped.cardinals.push(symbol.index)
     if (symbol.kind === 'polyomino') mapped.polyominoes.push(symbol.index)
     if (symbol.kind === 'hexagon') mapped.hexagons.push(symbol.index)
   }
@@ -175,6 +194,9 @@ function countSymbolColors(
   colorSquares: ColorSquare[],
   starTargets: StarTarget[],
   triangleTargets: TriangleTarget[],
+  minesweeperTargets: MinesweeperNumberTarget[],
+  waterDropletTargets: WaterDropletTarget[],
+  cardinalTargets: CardinalTarget[],
   polyominoSymbols: PolyominoSymbol[],
   negatorTargets: NegatorTarget[],
   includeNegatorColors = true
@@ -184,6 +206,9 @@ function countSymbolColors(
   for (const square of colorSquares) colors.add(square.color)
   for (const star of starTargets) colors.add(star.color)
   for (const triangle of triangleTargets) colors.add(triangle.color)
+  for (const mine of minesweeperTargets) colors.add(mine.color)
+  for (const droplet of waterDropletTargets) colors.add(droplet.color)
+  for (const cardinal of cardinalTargets) colors.add(cardinal.color)
   for (const symbol of polyominoSymbols) colors.add(symbol.color)
   if (includeNegatorColors) {
     for (const negator of negatorTargets) colors.add(negator.color)
@@ -215,7 +240,21 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
 
   const allEdges = useMemo(() => listAllEdges(), [])
 
-  const { puzzle, activeKinds, arrowTargets, colorSquares, starTargets, triangleTargets, polyominoSymbols, negatorTargets, hexTargets, solutionPath } = useMemo(() => {
+  const {
+    puzzle,
+    activeKinds,
+    arrowTargets,
+    colorSquares,
+    starTargets,
+    triangleTargets,
+    minesweeperTargets,
+    waterDropletTargets,
+    cardinalTargets,
+    polyominoSymbols,
+    negatorTargets,
+    hexTargets,
+    solutionPath,
+  } = useMemo(() => {
     type GeneratedCandidate = {
       puzzle: Puzzle
       activeKinds: TileKind[]
@@ -223,6 +262,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       colorSquares: ColorSquare[]
       starTargets: StarTarget[]
       triangleTargets: TriangleTarget[]
+      minesweeperTargets: MinesweeperNumberTarget[]
+      waterDropletTargets: WaterDropletTarget[]
+      cardinalTargets: CardinalTarget[]
       polyominoSymbols: PolyominoSymbol[]
       negatorTargets: NegatorTarget[]
       hexTargets: HexTarget[]
@@ -235,6 +277,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       colorSquares: ColorSquare[]
       starTargets: StarTarget[]
       triangleTargets: TriangleTarget[]
+      minesweeperTargets: MinesweeperNumberTarget[]
+      waterDropletTargets: WaterDropletTarget[]
+      cardinalTargets: CardinalTarget[]
       polyominoSymbols: PolyominoSymbol[]
       negatorTargets: NegatorTarget[]
       hexTargets: HexTarget[]
@@ -308,6 +353,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       let colorSquares: ColorSquare[] = []
       let starTargets: StarTarget[] = []
       let triangleTargets: TriangleTarget[] = []
+      let minesweeperTargets: MinesweeperNumberTarget[] = []
+      let waterDropletTargets: WaterDropletTarget[] = []
+      let cardinalTargets: CardinalTarget[] = []
       let polyominoSymbols: PolyominoSymbol[] = []
       let negatorTargets: NegatorTarget[] = []
       const hasNegativePolyKindsInAttempt =
@@ -388,7 +436,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           (active.includes('rotated-negative-polyomino') ? 1 : 0)
         const reservedPositiveSlotsForNegative =
           negativeKindCount === 0 ? 0 : negativeKindCount === 2 ? 2 : 1
-        let occupiedPositiveRegionIds = new Set<number>()
+        const occupiedPositiveRegionIds = new Set<number>()
 
         if (active.includes('polyomino')) {
           const currentPositiveCount = polyominoSymbols.filter((symbol) => !symbol.negative).length
@@ -707,6 +755,111 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         }
       }
 
+      if (active.includes('minesweeper-numbers')) {
+        const blockedMinesweeperCells = new Set<string>([
+          ...arrowTargets.map((arrow) => `${arrow.cellX},${arrow.cellY}`),
+          ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
+          ...starTargets.map((star) => `${star.cellX},${star.cellY}`),
+          ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+          ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
+        ])
+        const preferredMinesweeperColors = active.includes('stars')
+          ? Array.from(new Set([
+              ...arrowTargets.map((arrow) => arrow.color),
+              ...colorSquares.map((square) => square.color),
+              ...triangleTargets.map((triangle) => triangle.color),
+              ...polyominoSymbols.map((symbol) => symbol.color),
+            ])).slice(0, MAX_SYMBOL_COLORS)
+          : undefined
+        const minesweeperResult = generateMinesweeperNumbersForEdges(
+          edges,
+          seed + attempt * 27599,
+          baseKinds.length,
+          blockedMinesweeperCells,
+          active.includes('stars'),
+          preferredMinesweeperColors,
+          solutionPath ?? undefined
+        )
+        if (minesweeperResult) {
+          minesweeperTargets = minesweeperResult.targets
+          solutionPath = solutionPath ?? minesweeperResult.solutionPath
+        } else {
+          active = active.filter((kind) => kind !== 'minesweeper-numbers')
+        }
+      }
+
+      if (active.includes('water-droplet')) {
+        const blockedWaterCells = new Set<string>([
+          ...arrowTargets.map((arrow) => `${arrow.cellX},${arrow.cellY}`),
+          ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
+          ...cardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+          ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
+        ])
+        const preferredWaterColors = active.includes('stars')
+          ? Array.from(new Set([
+              ...arrowTargets.map((arrow) => arrow.color),
+              ...colorSquares.map((square) => square.color),
+              ...cardinalTargets.map((target) => target.color),
+              ...triangleTargets.map((triangle) => triangle.color),
+              ...minesweeperTargets.map((target) => target.color),
+              ...polyominoSymbols.map((symbol) => symbol.color),
+            ])).slice(0, MAX_SYMBOL_COLORS)
+          : undefined
+        const waterResult = generateWaterDropletsForEdges(
+          edges,
+          seed + attempt * 30259,
+          baseKinds.length,
+          blockedWaterCells,
+          active.includes('stars'),
+          preferredWaterColors,
+          solutionPath ?? undefined
+        )
+        if (waterResult) {
+          waterDropletTargets = waterResult.targets
+          solutionPath = solutionPath ?? waterResult.solutionPath
+        } else {
+          active = active.filter((kind) => kind !== 'water-droplet')
+        }
+      }
+
+      if (active.includes('cardinal')) {
+        const blockedCardinalCells = new Set<string>([
+          ...arrowTargets.map((arrow) => `${arrow.cellX},${arrow.cellY}`),
+          ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
+          ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+          ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...waterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
+        ])
+        const preferredCardinalColors = active.includes('stars')
+          ? Array.from(new Set([
+              ...arrowTargets.map((arrow) => arrow.color),
+              ...colorSquares.map((square) => square.color),
+              ...triangleTargets.map((triangle) => triangle.color),
+              ...minesweeperTargets.map((target) => target.color),
+              ...waterDropletTargets.map((target) => target.color),
+              ...polyominoSymbols.map((symbol) => symbol.color),
+            ])).slice(0, MAX_SYMBOL_COLORS)
+          : undefined
+        const cardinalResult = generateCardinalsForEdges(
+          edges,
+          seed + attempt * 28931,
+          baseKinds.length,
+          blockedCardinalCells,
+          active.includes('stars'),
+          preferredCardinalColors,
+          solutionPath ?? undefined
+        )
+        if (cardinalResult) {
+          cardinalTargets = cardinalResult.targets
+          solutionPath = solutionPath ?? cardinalResult.solutionPath
+        } else {
+          active = active.filter((kind) => kind !== 'cardinal')
+        }
+      }
+
       if (active.includes('stars')) {
         const minPairs =
           baseKinds.length === 1 && baseKinds[0] === 'stars'
@@ -727,6 +880,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             ? polyominoSymbols
             : [],
           active.includes('triangles') ? triangleTargets : [],
+          active.includes('minesweeper-numbers') ? minesweeperTargets : [],
+          active.includes('water-droplet') ? waterDropletTargets : [],
+          active.includes('cardinal') ? cardinalTargets : [],
           active.includes('negator'),
           solutionPath ?? undefined,
           baseKinds.length
@@ -750,6 +906,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           colorSquares.length +
           starTargets.length +
           triangleTargets.length +
+          minesweeperTargets.length +
+          waterDropletTargets.length +
+          cardinalTargets.length +
           polyominoSymbols.length +
           hexTargets.length
         if (removableSymbolCount === 0) {
@@ -761,6 +920,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
             ...starTargets.map((star) => `${star.cellX},${star.cellY}`),
             ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+            ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
+            ...waterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
+            ...cardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
             ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
           ])
           const preferredNegatorColors = active.includes('stars')
@@ -769,6 +931,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
                 ...colorSquares.map((square) => square.color),
                 ...starTargets.map((star) => star.color),
                 ...triangleTargets.map((triangle) => triangle.color),
+                ...minesweeperTargets.map((target) => target.color),
+                ...waterDropletTargets.map((target) => target.color),
+                ...cardinalTargets.map((target) => target.color),
                 ...polyominoSymbols.map((symbol) => symbol.color),
               ])).slice(0, MAX_SYMBOL_COLORS)
             : []
@@ -780,6 +945,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             colorSquares,
             starTargets,
             triangleTargets,
+            minesweeperTargets,
+            waterDropletTargets,
+            cardinalTargets,
             polyominoSymbols,
             hexTargets,
             active.includes('stars'),
@@ -802,6 +970,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           colorSquares,
           starTargets,
           triangleTargets,
+          minesweeperTargets,
+          waterDropletTargets,
+          cardinalTargets,
           polyominoSymbols,
           negatorTargets,
           true
@@ -821,6 +992,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         colorSquares.length +
         starTargets.length +
         triangleTargets.length +
+        minesweeperTargets.length +
+        waterDropletTargets.length +
+        cardinalTargets.length +
         polyominoSymbols.length +
         negatorTargets.length +
         hexTargets.length
@@ -850,6 +1024,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             colorSquares,
             starTargets,
             triangleTargets,
+            minesweeperTargets,
+            waterDropletTargets,
+            cardinalTargets,
             polyominoSymbols,
             negatorTargets,
             hexTargets,
@@ -885,6 +1062,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
               colorSquares,
               starTargets,
               triangleTargets,
+              minesweeperTargets,
+              waterDropletTargets,
+              cardinalTargets,
               polyominoSymbols,
               negatorTargets,
               hexTargets,
@@ -908,6 +1088,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           colorSquares,
           starTargets,
           triangleTargets,
+          minesweeperTargets,
+          waterDropletTargets,
+          cardinalTargets,
           polyominoSymbols,
           negatorTargets,
           hexTargets,
@@ -928,6 +1111,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         colorSquares,
         starTargets,
         triangleTargets,
+        minesweeperTargets,
+        waterDropletTargets,
+        cardinalTargets,
         polyominoSymbols,
         negatorTargets,
         hexTargets,
@@ -962,6 +1148,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
               colorSquares: pending.colorSquares,
               starTargets: pending.starTargets,
               triangleTargets: pending.triangleTargets,
+              minesweeperTargets: pending.minesweeperTargets,
+              waterDropletTargets: pending.waterDropletTargets,
+              cardinalTargets: pending.cardinalTargets,
               polyominoSymbols: pending.polyominoSymbols,
               negatorTargets: pending.negatorTargets,
               hexTargets: pending.hexTargets,
@@ -992,6 +1181,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
               colorSquares: pending.colorSquares,
               starTargets: pending.starTargets,
               triangleTargets: pending.triangleTargets,
+              minesweeperTargets: pending.minesweeperTargets,
+              waterDropletTargets: pending.waterDropletTargets,
+              cardinalTargets: pending.cardinalTargets,
               polyominoSymbols: pending.polyominoSymbols,
               negatorTargets: pending.negatorTargets,
               hexTargets: pending.hexTargets,
@@ -1008,6 +1200,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             colorSquares: pending.colorSquares,
             starTargets: pending.starTargets,
             triangleTargets: pending.triangleTargets,
+            minesweeperTargets: pending.minesweeperTargets,
+            waterDropletTargets: pending.waterDropletTargets,
+            cardinalTargets: pending.cardinalTargets,
             polyominoSymbols: pending.polyominoSymbols,
             negatorTargets: pending.negatorTargets,
             hexTargets: pending.hexTargets,
@@ -1032,7 +1227,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const polyFallbackRng = mulberry32(seed + 54013 + fallbackAttempt * 1493)
         const polyFallbackPalette = buildPolyominoPalette(polyFallbackRng, [], false)
         const polyFallbackUsedCells = new Set<string>()
-        let polyFallbackOccupiedPositiveRegionIds = new Set<number>()
+        const polyFallbackOccupiedPositiveRegionIds = new Set<number>()
         let polyFallbackSymbols: PolyominoSymbol[] = []
         const polyFallbackPathSeed =
           findBestLoopyPathByRegions(polyFallbackEdges, polyFallbackRng, 10, 8) ??
@@ -1218,6 +1413,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
               colorSquares: [],
               starTargets: [],
               triangleTargets: [],
+              minesweeperTargets: [],
+              waterDropletTargets: [],
+              cardinalTargets: [],
               polyominoSymbols: polyFallbackSymbols,
               negatorTargets: [],
               hexTargets: [],
@@ -1237,6 +1435,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
               colorSquares: [],
               starTargets: [],
               triangleTargets: [],
+              minesweeperTargets: [],
+              waterDropletTargets: [],
+              cardinalTargets: [],
               polyominoSymbols: polyFallbackSymbols,
               negatorTargets: [],
               hexTargets: [],
@@ -1252,6 +1453,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             colorSquares: [],
             starTargets: [],
             triangleTargets: [],
+            minesweeperTargets: [],
+            waterDropletTargets: [],
+            cardinalTargets: [],
             polyominoSymbols: polyFallbackSymbols,
             negatorTargets: [],
             hexTargets: [],
@@ -1262,7 +1466,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
     }
 
     const fallbackKinds = baseKinds.filter((kind) => kind !== 'negator')
-    const safeFallbackKinds =
+    let safeFallbackKinds =
       fallbackKinds.length > 0
         ? fallbackKinds.slice(0, Math.min(fallbackKinds.length, Math.max(minActive, 1)))
         : (['gap-line'] as TileKind[])
@@ -1270,20 +1474,157 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       ? generatePuzzle(seed).edges
       : buildFullEdges()
     const fallbackPuzzle = { edges: fallbackEdges }
-    const fallbackHexTargets = safeFallbackKinds.includes('hexagon')
+    let fallbackHexTargets = safeFallbackKinds.includes('hexagon')
       ? generateHexTargets(fallbackEdges, seed + 7)
       : []
-    return {
-      puzzle: fallbackPuzzle,
-      activeKinds: safeFallbackKinds,
+    const fallbackRng = mulberry32(seed + 76031)
+    let fallbackSolutionPath: Point[] | null =
+      findBestLoopyPathByRegions(fallbackEdges, fallbackRng, 90, 8) ??
+      findRandomPath(fallbackEdges, fallbackRng)
+    let fallbackCardinalTargets: CardinalTarget[] = []
+    if (safeFallbackKinds.includes('cardinal')) {
+      const blockedCardinalCells = new Set<string>()
+      const preferredCardinalColors = undefined
+      const cardinalFallbackResult = generateCardinalsForEdges(
+        fallbackEdges,
+        seed + 77043,
+        baseKinds.length,
+        blockedCardinalCells,
+        safeFallbackKinds.includes('stars'),
+        preferredCardinalColors,
+        fallbackSolutionPath ?? undefined
+      )
+      if (cardinalFallbackResult) {
+        fallbackCardinalTargets = cardinalFallbackResult.targets
+        fallbackSolutionPath = fallbackSolutionPath ?? cardinalFallbackResult.solutionPath
+      }
+    }
+    let fallbackWaterDropletTargets: WaterDropletTarget[] = []
+    if (safeFallbackKinds.includes('water-droplet')) {
+      const blockedWaterCells = new Set<string>([
+        ...fallbackCardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
+      ])
+      const preferredWaterColors = undefined
+      const waterFallbackResult = generateWaterDropletsForEdges(
+        fallbackEdges,
+        seed + 77077,
+        baseKinds.length,
+        blockedWaterCells,
+        safeFallbackKinds.includes('stars'),
+        preferredWaterColors,
+        fallbackSolutionPath ?? undefined
+      )
+      if (waterFallbackResult) {
+        fallbackWaterDropletTargets = waterFallbackResult.targets
+        fallbackSolutionPath = fallbackSolutionPath ?? waterFallbackResult.solutionPath
+      }
+    }
+    let fallbackStarTargets: StarTarget[] = []
+    if (safeFallbackKinds.includes('stars')) {
+      const starFallbackResult = generateStarsForEdges(
+        fallbackEdges,
+        seed + 77011,
+        1,
+        [],
+        [],
+        [],
+        [],
+        [],
+        fallbackWaterDropletTargets,
+        fallbackCardinalTargets,
+        false,
+        fallbackSolutionPath ?? undefined,
+        baseKinds.length
+      )
+      if (starFallbackResult) {
+        fallbackStarTargets = starFallbackResult.stars
+        fallbackSolutionPath = fallbackSolutionPath ?? starFallbackResult.solutionPath
+      }
+    }
+    if (
+      hasRequestedSymbols &&
+      fallbackHexTargets.length +
+        fallbackStarTargets.length +
+        fallbackCardinalTargets.length +
+        fallbackWaterDropletTargets.length ===
+        0
+    ) {
+      const emergencyStarResult = generateStarsForEdges(
+        fallbackEdges,
+        seed + 77191,
+        1,
+        [],
+        [],
+        [],
+        [],
+        [],
+        fallbackWaterDropletTargets,
+        fallbackCardinalTargets,
+        false,
+        fallbackSolutionPath ?? undefined,
+        baseKinds.length
+      )
+      if (emergencyStarResult) {
+        fallbackStarTargets = emergencyStarResult.stars
+        fallbackSolutionPath = fallbackSolutionPath ?? emergencyStarResult.solutionPath
+        if (!safeFallbackKinds.includes('stars')) {
+          safeFallbackKinds = [...safeFallbackKinds, 'stars']
+        }
+      } else {
+        fallbackHexTargets = generateHexTargets(fallbackEdges, seed + 70007)
+        if (fallbackHexTargets.length > 0 && !safeFallbackKinds.includes('hexagon')) {
+          safeFallbackKinds = [...safeFallbackKinds, 'hexagon']
+        }
+      }
+    }
+    const fallbackSymbols = {
       arrowTargets: [],
       colorSquares: [],
-      starTargets: [],
+      starTargets: fallbackStarTargets,
       triangleTargets: [],
+      minesweeperTargets: [],
+      waterDropletTargets: fallbackWaterDropletTargets,
+      cardinalTargets: fallbackCardinalTargets,
       polyominoSymbols: [],
       negatorTargets: [],
       hexTargets: fallbackHexTargets,
-      solutionPath: null,
+    }
+    let validatedFallbackPath: Point[] | null = null
+    if (fallbackSolutionPath && fallbackSolutionPath.length >= 2) {
+      const usedEdgesForFallbackSolution = edgesFromPath(fallbackSolutionPath)
+      const fallbackSolutionEvaluation = evaluatePathConstraints(
+        fallbackSolutionPath,
+        usedEdgesForFallbackSolution,
+        safeFallbackKinds,
+        fallbackSymbols,
+        'first'
+      )
+      if (fallbackSolutionEvaluation.ok) {
+        validatedFallbackPath = fallbackSolutionPath
+      }
+    }
+    if (!validatedFallbackPath) {
+      validatedFallbackPath = findAnyValidSolutionPath(
+        fallbackEdges,
+        safeFallbackKinds,
+        fallbackSymbols,
+        GENERATION_RECOVERY_SOLVER_VISIT_BUDGET
+      )
+    }
+    return {
+      puzzle: fallbackPuzzle,
+      activeKinds: safeFallbackKinds,
+      arrowTargets: fallbackSymbols.arrowTargets,
+      colorSquares: fallbackSymbols.colorSquares,
+      starTargets: fallbackSymbols.starTargets,
+      triangleTargets: fallbackSymbols.triangleTargets,
+      minesweeperTargets: fallbackSymbols.minesweeperTargets,
+      waterDropletTargets: fallbackSymbols.waterDropletTargets,
+      cardinalTargets: fallbackSymbols.cardinalTargets,
+      polyominoSymbols: fallbackSymbols.polyominoSymbols,
+      negatorTargets: fallbackSymbols.negatorTargets,
+      hexTargets: fallbackSymbols.hexTargets,
+      solutionPath: validatedFallbackPath,
     }
   }, [seed, selectedKinds])
 
@@ -1334,6 +1675,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       colorSquares: [...lastSolved.eliminations.colorSquares],
       stars: [...lastSolved.eliminations.stars],
       triangles: [...lastSolved.eliminations.triangles],
+      minesweeper: [...lastSolved.eliminations.minesweeper],
+      waterDroplets: [...lastSolved.eliminations.waterDroplets],
+      cardinals: [...lastSolved.eliminations.cardinals],
       polyominoes: [...lastSolved.eliminations.polyominoes],
       hexagons: [...lastSolved.eliminations.hexagons],
     })
@@ -1444,6 +1788,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       colorSquares,
       starTargets,
       triangleTargets,
+      minesweeperTargets,
+      waterDropletTargets,
+      cardinalTargets,
       polyominoSymbols,
       negatorTargets,
       hexTargets,
@@ -1472,6 +1819,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         colorSquares: [...solvedEliminations.colorSquares],
         stars: [...solvedEliminations.stars],
         triangles: [...solvedEliminations.triangles],
+        minesweeper: [...solvedEliminations.minesweeper],
+        waterDroplets: [...solvedEliminations.waterDroplets],
+        cardinals: [...solvedEliminations.cardinals],
         polyominoes: [...solvedEliminations.polyominoes],
         hexagons: [...solvedEliminations.hexagons],
       },
@@ -1497,22 +1847,48 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
 
   const handleSolve = () => {
     clearSolveTrace()
-    const solved =
-      solutionPath ??
-      findAnyValidSolutionPath(
+    const symbols = {
+      arrowTargets,
+      colorSquares,
+      starTargets,
+      triangleTargets,
+      minesweeperTargets,
+      waterDropletTargets,
+      cardinalTargets,
+      polyominoSymbols,
+      negatorTargets,
+      hexTargets,
+    }
+    let solved: Point[] | null = null
+    if (solutionPath && solutionPath.length >= 2) {
+      const hintedEdges = edgesFromPath(solutionPath)
+      const hintedEvaluation = evaluatePathConstraints(
+        solutionPath,
+        hintedEdges,
+        activeKinds,
+        symbols,
+        'first'
+      )
+      if (hintedEvaluation.ok) {
+        solved = solutionPath
+      }
+    }
+    if (!solved) {
+      solved = findAnyValidSolutionPath(
         puzzle.edges,
         activeKinds,
-        {
-          arrowTargets,
-          colorSquares,
-          starTargets,
-          triangleTargets,
-          polyominoSymbols,
-          negatorTargets,
-          hexTargets,
-        },
+        symbols,
         MANUAL_SOLVER_VISIT_BUDGET
       )
+    }
+    if (!solved) {
+      solved = findAnyValidSolutionPath(
+        puzzle.edges,
+        activeKinds,
+        symbols,
+        MANUAL_SOLVER_VISIT_BUDGET_FALLBACK
+      )
+    }
     if (!solved || solved.length < 2) {
       setResult('fail')
       setLocked(false)
@@ -1626,6 +2002,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       colorSquares: new Set(eliminations.colorSquares),
       stars: new Set(eliminations.stars),
       triangles: new Set(eliminations.triangles),
+      minesweeper: new Set(eliminations.minesweeper),
+      waterDroplets: new Set(eliminations.waterDroplets),
+      cardinals: new Set(eliminations.cardinals),
       polyominoes: new Set(eliminations.polyominoes),
       hexagons: new Set(eliminations.hexagons),
     }),
@@ -1829,6 +2208,107 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
               })}
             </g>
           )}
+          {minesweeperTargets.length > 0 && (
+            <g className="minesweeper-targets">
+              {minesweeperTargets.map((target, index) => {
+                const pixels = minesweeperDigitPixels(target.value)
+                const unit = 0.05
+                const width = 5 * unit
+                const height = 7 * unit
+                const x = target.cellX + 0.5 - width / 2
+                const y = target.cellY + 0.5 - height / 2
+                const shadowOffset = unit * 0.26
+                return (
+                  <g
+                    key={`mine-${target.cellX}-${target.cellY}-${index}`}
+                    style={eliminated.minesweeper.has(index) ? { opacity: 0.24 } : undefined}
+                  >
+                    {pixels.map((pixel, pixelIndex) => (
+                      <rect
+                        key={`mine-shadow-${index}-${pixelIndex}`}
+                        className="mine-number-shadow"
+                        x={x + pixel.x * unit + shadowOffset}
+                        y={y + pixel.y * unit + shadowOffset}
+                        width={unit}
+                        height={unit}
+                        rx={0}
+                      />
+                    ))}
+                    {pixels.map((pixel, pixelIndex) => (
+                      <rect
+                        key={`mine-fill-${index}-${pixelIndex}`}
+                        className="mine-number-fill"
+                        x={x + pixel.x * unit}
+                        y={y + pixel.y * unit}
+                        width={unit}
+                        height={unit}
+                        rx={0}
+                        style={{ fill: target.color }}
+                      />
+                    ))}
+                  </g>
+                )
+              })}
+            </g>
+          )}
+          {waterDropletTargets.length > 0 && (
+            <g className="water-droplets">
+              {waterDropletTargets.map((target, index) => {
+                const glowFilter = symbolGlowFilter(target.color)
+                const dropletPath =
+                  'M 0 -0.2 C 0.17 -0.07 0.24 0.07 0.16 0.2 C 0.09 0.31 -0.09 0.31 -0.16 0.2 C -0.24 0.07 -0.17 -0.07 0 -0.2 Z'
+                const rimColor = colorWithAlpha(target.color, 0.56)
+                const centerYOffset = -0.055
+                return (
+                  <g
+                    key={`water-${target.cellX}-${target.cellY}-${index}`}
+                    transform={`translate(${target.cellX + 0.5} ${target.cellY + 0.5}) rotate(${waterDropletDirectionAngle(target.direction)}) translate(0 ${centerYOffset})`}
+                    style={
+                      eliminated.waterDroplets.has(index)
+                        ? { opacity: 0.24, filter: glowFilter }
+                        : { filter: glowFilter }
+                    }
+                  >
+                    <path
+                      className="water-droplet"
+                      d={dropletPath}
+                      style={{ fill: target.color }}
+                    />
+                    <path className="water-droplet-rim" d={dropletPath} style={{ stroke: rimColor }} />
+                    <ellipse className="water-droplet-gloss" cx={-0.045} cy={-0.065} rx={0.054} ry={0.036} transform="rotate(-26)" />
+                    <circle className="water-droplet-bubble" cx={0.06} cy={0.088} r={0.022} />
+                  </g>
+                )
+              })}
+            </g>
+          )}
+          {cardinalTargets.length > 0 && (
+            <g className="cardinals">
+              {cardinalTargets.map((target, index) => {
+                const glowFilter = symbolGlowFilter(target.color)
+                return (
+                  <g
+                    key={`cardinal-${target.cellX}-${target.cellY}-${index}`}
+                    transform={`translate(${target.cellX + 0.5} ${target.cellY + 0.5})`}
+                    style={
+                      eliminated.cardinals.has(index)
+                        ? { opacity: 0.24, filter: glowFilter }
+                        : { filter: glowFilter }
+                    }
+                  >
+                    <rect className="cardinal-body" x={-0.04} y={-0.146} width={0.08} height={0.11} rx={0.03} style={{ fill: target.color }} />
+                    <rect className="cardinal-body" x={-0.04} y={0.036} width={0.08} height={0.11} rx={0.03} style={{ fill: target.color }} />
+                    <rect className="cardinal-body" x={-0.146} y={-0.04} width={0.11} height={0.08} rx={0.03} style={{ fill: target.color }} />
+                    <rect className="cardinal-body" x={0.036} y={-0.04} width={0.11} height={0.08} rx={0.03} style={{ fill: target.color }} />
+                    <polyline className="cardinal-chevron" points="-0.085,-0.164 0,-0.248 0.085,-0.164" style={{ stroke: target.color }} />
+                    <polyline className="cardinal-chevron" points="0.164,-0.085 0.248,0 0.164,0.085" style={{ stroke: target.color }} />
+                    <polyline className="cardinal-chevron" points="0.085,0.164 0,0.248 -0.085,0.164" style={{ stroke: target.color }} />
+                    <polyline className="cardinal-chevron" points="-0.164,0.085 -0.248,0 -0.164,-0.085" style={{ stroke: target.color }} />
+                  </g>
+                )
+              })}
+            </g>
+          )}
           {polyominoSymbols.length > 0 && (
             <g className="polyominoes">
               {polyominoSymbols.map((symbol, index) => {
@@ -1894,15 +2374,17 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       </section>
 
       <div className="puzzle-actions">
-        <button className="btn primary" onClick={handleNewPuzzle}>
-          New puzzle
-        </button>
-        <button className="btn ghost" onClick={handleSolve} disabled={result === 'success'}>
-          Solve
-        </button>
-        <button className="btn ghost" onClick={handleViewLastSolved} disabled={!lastSolved}>
-          Letztes gelöstes Puzzle
-        </button>
+        <div className="puzzle-buttons">
+          <button className="btn primary" onClick={handleNewPuzzle}>
+            New puzzle
+          </button>
+          <button className="btn ghost" onClick={handleSolve} disabled={result === 'success'}>
+            Solve
+          </button>
+          <button className="btn ghost" onClick={handleViewLastSolved} disabled={!lastSolved}>
+            Last solved puzzle
+          </button>
+        </div>
         <p className="puzzle-hint">Right-click resets the path.</p>
       </div>
     </div>

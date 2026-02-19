@@ -8,20 +8,35 @@ type View = 'home' | 'puzzle'
 
 const ACTIVE_SYMBOLS: Array<{ label: string; description: string; kind: TileKind }> = [
   { label: 'Gaps', description: 'Missing segments block the path and force reroutes.', kind: 'gap-line' },
-  { label: 'Hexagon', description: 'Collect every hexagon before finishing the path.', kind: 'hexagon' },
-  { label: 'Color Squares', description: 'Separate colors so no region contains multiple colors.', kind: 'color-squares' },
+  { label: 'Hexagons', description: 'Collect every hexagon before finishing the path.', kind: 'hexagon' },
+  { label: 'Colored Squares', description: 'Separate colors so no region contains multiple colors.', kind: 'color-squares' },
   { label: 'Stars', description: 'Pair stars by color inside each region.', kind: 'stars' },
   { label: 'Triangles', description: 'Touch each triangle cell edge exactly as many times as shown.', kind: 'triangles' },
-  { label: 'Polyomino', description: 'Outline the exact shape inside the region.', kind: 'polyomino' },
-  { label: 'Rotated Polyomino', description: 'Outline the shape; rotations count, mirrors do not.', kind: 'rotated-polyomino' },
+  { label: 'Polyominoes', description: 'Outline the exact shape inside the region.', kind: 'polyomino' },
+  { label: 'Rotated Polyominoes', description: 'Outline the shape; rotations count, mirrors do not.', kind: 'rotated-polyomino' },
   { label: 'Negative Polyominoes', description: 'Subtract this shape from polyomino solutions.', kind: 'negative-polyomino' },
   {
     label: 'Rotated Negative Polyominoes',
     description: 'Subtract this shape; rotated placement is required.',
     kind: 'rotated-negative-polyomino',
   },
-  { label: 'Negator', description: 'Eliminates one symbol in the same region; both then count as removed.', kind: 'negator' },
+  { label: 'Negators', description: 'Eliminates one symbol in the same region; both then count as removed.', kind: 'negator' },
   { label: 'Arrows', description: 'Cross the ray direction exactly as many times as shown by arrowheads.', kind: 'arrows' },
+  {
+    label: 'Minesweeper Numbers',
+    description: 'A number counts surrounding cells that are separated into other regions.',
+    kind: 'minesweeper-numbers',
+  },
+  {
+    label: 'Water Droplets',
+    description: 'Catch the flow: water under its heavy side must stay contained inside the grid.',
+    kind: 'water-droplet',
+  },
+  {
+    label: 'Cardinal',
+    description: 'From the symbol, all four directions must be blocked by the path before the grid edge.',
+    kind: 'cardinal',
+  },
 ]
 
 const TOTAL_SYMBOL_FIELDS = 20

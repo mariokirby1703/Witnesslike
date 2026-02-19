@@ -1,9 +1,12 @@
 import type { ArrowTarget } from './arrows'
 import { COLOR_PALETTE, buildCellRegions, edgesFromPath, findBestLoopyPathByRegions, findRandomPath, mulberry32, randInt, shuffle } from '../puzzleUtils'
 import type { ColorSquare } from './colorSquares'
+import type { CardinalTarget } from './cardinal'
+import type { MinesweeperNumberTarget } from './minesweeperNumbers'
 import type { NegatorTarget } from './negator'
 import type { PolyominoSymbol } from './polyomino'
 import type { TriangleTarget } from './triangles'
+import type { WaterDropletTarget } from './waterDroplet'
 
 export type StarTarget = {
   cellX: number
@@ -19,6 +22,9 @@ export function generateStarsForEdges(
   colorSquares: ColorSquare[],
   polyominoSymbols: PolyominoSymbol[],
   triangleTargets: TriangleTarget[],
+  minesweeperTargets: MinesweeperNumberTarget[],
+  waterDropletTargets: WaterDropletTarget[],
+  cardinalTargets: CardinalTarget[],
   allowNegatorOrphan = false,
   preferredPath?: { x: number; y: number }[],
   selectedSymbolCount = 3
@@ -68,6 +74,27 @@ export function generateStarsForEdges(
     const regionMap = coloredCounts.get(region)
     regionMap?.set(triangle.color, (regionMap.get(triangle.color) ?? 0) + 1)
   }
+  for (const mine of minesweeperTargets) {
+    const region = regions.get(`${mine.cellX},${mine.cellY}`)
+    if (region === undefined) continue
+    if (!coloredCounts.has(region)) coloredCounts.set(region, new Map())
+    const regionMap = coloredCounts.get(region)
+    regionMap?.set(mine.color, (regionMap.get(mine.color) ?? 0) + 1)
+  }
+  for (const droplet of waterDropletTargets) {
+    const region = regions.get(`${droplet.cellX},${droplet.cellY}`)
+    if (region === undefined) continue
+    if (!coloredCounts.has(region)) coloredCounts.set(region, new Map())
+    const regionMap = coloredCounts.get(region)
+    regionMap?.set(droplet.color, (regionMap.get(droplet.color) ?? 0) + 1)
+  }
+  for (const cardinal of cardinalTargets) {
+    const region = regions.get(`${cardinal.cellX},${cardinal.cellY}`)
+    if (region === undefined) continue
+    if (!coloredCounts.has(region)) coloredCounts.set(region, new Map())
+    const regionMap = coloredCounts.get(region)
+    regionMap?.set(cardinal.color, (regionMap.get(cardinal.color) ?? 0) + 1)
+  }
 
   const symbolColors = Array.from(new Set(arrowTargets.map((arrow) => arrow.color)))
   for (const square of colorSquares) {
@@ -83,6 +110,21 @@ export function generateStarsForEdges(
   for (const triangle of triangleTargets) {
     if (!symbolColors.includes(triangle.color)) {
       symbolColors.push(triangle.color)
+    }
+  }
+  for (const mine of minesweeperTargets) {
+    if (!symbolColors.includes(mine.color)) {
+      symbolColors.push(mine.color)
+    }
+  }
+  for (const droplet of waterDropletTargets) {
+    if (!symbolColors.includes(droplet.color)) {
+      symbolColors.push(droplet.color)
+    }
+  }
+  for (const cardinal of cardinalTargets) {
+    if (!symbolColors.includes(cardinal.color)) {
+      symbolColors.push(cardinal.color)
     }
   }
 
@@ -130,6 +172,9 @@ export function generateStarsForEdges(
       ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
       ...polyominoSymbols.map((poly) => `${poly.cellX},${poly.cellY}`),
       ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+      ...minesweeperTargets.map((mine) => `${mine.cellX},${mine.cellY}`),
+      ...waterDropletTargets.map((droplet) => `${droplet.cellX},${droplet.cellY}`),
+      ...cardinalTargets.map((cardinal) => `${cardinal.cellX},${cardinal.cellY}`),
     ]
   )
 
@@ -150,7 +195,14 @@ export function generateStarsForEdges(
   }
 
   const hasSupportSymbols =
-    arrowTargets.length + colorSquares.length + polyominoSymbols.length + triangleTargets.length > 0
+    arrowTargets.length +
+      colorSquares.length +
+      polyominoSymbols.length +
+      triangleTargets.length +
+      minesweeperTargets.length +
+      waterDropletTargets.length +
+      cardinalTargets.length >
+    0
   const oneStarSlots = shuffledSlots.filter((slot) => slot.starsNeeded === 1)
   const placeableOneStarSlots = oneStarSlots.filter((slot) => {
     const cells = regionCells.get(slot.region)
@@ -238,6 +290,9 @@ export function checkStars(
   colorSquares: ColorSquare[],
   polyominoSymbols: PolyominoSymbol[],
   triangleTargets: TriangleTarget[],
+  minesweeperTargets: MinesweeperNumberTarget[],
+  waterDropletTargets: WaterDropletTarget[],
+  cardinalTargets: CardinalTarget[],
   negatorTargets: NegatorTarget[] = []
 ) {
   const regions = buildCellRegions(usedEdges)
@@ -296,6 +351,38 @@ export function checkStars(
     const entry = colorMap.get(triangle.color) ?? { stars: 0, symbols: 0 }
     entry.symbols += 1
     colorMap.set(triangle.color, entry)
+  }
+
+  for (const mine of minesweeperTargets) {
+    const region = regions.get(`${mine.cellX},${mine.cellY}`)
+    if (region === undefined) continue
+    if (!regionCounts.has(region)) regionCounts.set(region, new Map())
+    const colorMap = regionCounts.get(region)
+    if (!colorMap) continue
+    const entry = colorMap.get(mine.color) ?? { stars: 0, symbols: 0 }
+    entry.symbols += 1
+    colorMap.set(mine.color, entry)
+  }
+
+  for (const droplet of waterDropletTargets) {
+    const region = regions.get(`${droplet.cellX},${droplet.cellY}`)
+    if (region === undefined) continue
+    if (!regionCounts.has(region)) regionCounts.set(region, new Map())
+    const colorMap = regionCounts.get(region)
+    if (!colorMap) continue
+    const entry = colorMap.get(droplet.color) ?? { stars: 0, symbols: 0 }
+    entry.symbols += 1
+    colorMap.set(droplet.color, entry)
+  }
+  for (const cardinal of cardinalTargets) {
+    const region = regions.get(`${cardinal.cellX},${cardinal.cellY}`)
+    if (region === undefined) continue
+    if (!regionCounts.has(region)) regionCounts.set(region, new Map())
+    const colorMap = regionCounts.get(region)
+    if (!colorMap) continue
+    const entry = colorMap.get(cardinal.color) ?? { stars: 0, symbols: 0 }
+    entry.symbols += 1
+    colorMap.set(cardinal.color, entry)
   }
 
   for (const negator of negatorTargets) {

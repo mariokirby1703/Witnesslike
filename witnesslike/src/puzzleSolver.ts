@@ -4,23 +4,32 @@ import type { Point } from './puzzleConstants'
 import { buildCellRegions, edgeKey, neighbors } from './puzzleUtils'
 import { checkColorSquares } from './symbols/colorSquares'
 import type { ColorSquare } from './symbols/colorSquares'
+import { checkCardinals, isCardinalBlockedAllDirections } from './symbols/cardinal'
+import type { CardinalTarget } from './symbols/cardinal'
 import { checkArrows, countArrowCrossings } from './symbols/arrows'
 import type { ArrowTarget } from './symbols/arrows'
 import { checkHexTargets } from './symbols/hexagon'
 import type { HexTarget } from './symbols/hexagon'
 import type { NegatorTarget } from './symbols/negator'
+import { checkMinesweeperNumbers, countSeparatedNeighborCells } from './symbols/minesweeperNumbers'
+import type { MinesweeperNumberTarget } from './symbols/minesweeperNumbers'
 import { checkPolyominoes } from './symbols/polyomino'
 import type { PolyominoSymbol } from './symbols/polyomino'
 import { checkStars } from './symbols/stars'
 import type { StarTarget } from './symbols/stars'
 import { checkTriangles } from './symbols/triangles'
 import type { TriangleTarget } from './symbols/triangles'
+import { checkWaterDroplets, isWaterDropletContained } from './symbols/waterDroplet'
+import type { WaterDropletTarget } from './symbols/waterDroplet'
 
 type SolverSymbols = {
   arrowTargets: ArrowTarget[]
   colorSquares: ColorSquare[]
   starTargets: StarTarget[]
   triangleTargets: TriangleTarget[]
+  minesweeperTargets: MinesweeperNumberTarget[]
+  waterDropletTargets: WaterDropletTarget[]
+  cardinalTargets: CardinalTarget[]
   polyominoSymbols: PolyominoSymbol[]
   hexTargets: HexTarget[]
   negatorTargets: NegatorTarget[]
@@ -31,6 +40,9 @@ export type EliminatedSymbolRef =
   | { kind: 'color-square'; index: number }
   | { kind: 'star'; index: number }
   | { kind: 'triangle'; index: number }
+  | { kind: 'minesweeper'; index: number }
+  | { kind: 'water-droplet'; index: number }
+  | { kind: 'cardinal'; index: number }
   | { kind: 'polyomino'; index: number }
   | { kind: 'hexagon'; index: number }
 
@@ -159,6 +171,22 @@ function buildFailingSymbolKeySet(
 
   const regions = buildCellRegions(usedEdges)
 
+  symbols.minesweeperTargets.forEach((target, index) => {
+    if (countSeparatedNeighborCells(regions, target.cellX, target.cellY) !== target.value) {
+      failing.add(`minesweeper:${index}`)
+    }
+  })
+  symbols.waterDropletTargets.forEach((target, index) => {
+    if (!isWaterDropletContained(regions, target, usedEdges)) {
+      failing.add(`water-droplet:${index}`)
+    }
+  })
+  symbols.cardinalTargets.forEach((target, index) => {
+    if (!isCardinalBlockedAllDirections(usedEdges, target.cellX, target.cellY)) {
+      failing.add(`cardinal:${index}`)
+    }
+  })
+
   const colorSquaresByRegion = new Map<number, Array<number>>()
   const regionColorSets = new Map<number, Set<string>>()
   symbols.colorSquares.forEach((square, index) => {
@@ -207,6 +235,9 @@ function buildFailingSymbolKeySet(
   symbols.arrowTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
   symbols.colorSquares.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
   symbols.triangleTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
+  symbols.minesweeperTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
+  symbols.waterDropletTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
+  symbols.cardinalTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
   symbols.polyominoSymbols.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
   symbols.negatorTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
 
@@ -249,6 +280,9 @@ function satisfiesBaseConstraints(
       symbols.colorSquares,
       symbols.polyominoSymbols,
       symbols.triangleTargets,
+      symbols.minesweeperTargets,
+      symbols.waterDropletTargets,
+      symbols.cardinalTargets,
       symbols.negatorTargets
     )) {
       return false
@@ -257,6 +291,18 @@ function satisfiesBaseConstraints(
 
   if (activeKinds.includes('triangles')) {
     if (!checkTriangles(usedEdges, symbols.triangleTargets)) return false
+  }
+
+  if (activeKinds.includes('minesweeper-numbers')) {
+    if (!checkMinesweeperNumbers(usedEdges, symbols.minesweeperTargets)) return false
+  }
+
+  if (activeKinds.includes('water-droplet')) {
+    if (!checkWaterDroplets(usedEdges, symbols.waterDropletTargets)) return false
+  }
+
+  if (activeKinds.includes('cardinal')) {
+    if (!checkCardinals(usedEdges, symbols.cardinalTargets)) return false
   }
 
   if (
@@ -298,9 +344,12 @@ export function evaluatePathConstraints(
     star: 1,
     arrow: 2,
     triangle: 3,
-    'color-square': 4,
-    hexagon: 5,
-    polyomino: 6,
+    minesweeper: 4,
+    'water-droplet': 5,
+    cardinal: 6,
+    'color-square': 7,
+    hexagon: 8,
+    polyomino: 9,
   }
 
   symbols.arrowTargets.forEach((target, index) => {
@@ -322,6 +371,21 @@ export function evaluatePathConstraints(
     const region = regions.get(`${target.cellX},${target.cellY}`)
     if (region === undefined) return
     removableSymbols.push({ kind: 'triangle', index, region })
+  })
+  symbols.minesweeperTargets.forEach((target, index) => {
+    const region = regions.get(`${target.cellX},${target.cellY}`)
+    if (region === undefined) return
+    removableSymbols.push({ kind: 'minesweeper', index, region })
+  })
+  symbols.waterDropletTargets.forEach((target, index) => {
+    const region = regions.get(`${target.cellX},${target.cellY}`)
+    if (region === undefined) return
+    removableSymbols.push({ kind: 'water-droplet', index, region })
+  })
+  symbols.cardinalTargets.forEach((target, index) => {
+    const region = regions.get(`${target.cellX},${target.cellY}`)
+    if (region === undefined) return
+    removableSymbols.push({ kind: 'cardinal', index, region })
   })
   symbols.polyominoSymbols.forEach((target, index) => {
     const region = regions.get(`${target.cellX},${target.cellY}`)
@@ -372,6 +436,9 @@ export function evaluatePathConstraints(
       const removedArrows = new Set<number>()
       const removedStars = new Set<number>()
       const removedTriangles = new Set<number>()
+      const removedMinesweeper = new Set<number>()
+      const removedWaterDroplets = new Set<number>()
+      const removedCardinals = new Set<number>()
       const removedPolyominoes = new Set<number>()
       const removedHexagons = new Set<number>()
       const removedNegators = new Set<number>(
@@ -388,6 +455,9 @@ export function evaluatePathConstraints(
         if (symbol.kind === 'color-square') removedColorSquares.add(symbol.index)
         if (symbol.kind === 'star') removedStars.add(symbol.index)
         if (symbol.kind === 'triangle') removedTriangles.add(symbol.index)
+        if (symbol.kind === 'minesweeper') removedMinesweeper.add(symbol.index)
+        if (symbol.kind === 'water-droplet') removedWaterDroplets.add(symbol.index)
+        if (symbol.kind === 'cardinal') removedCardinals.add(symbol.index)
         if (symbol.kind === 'polyomino') removedPolyominoes.add(symbol.index)
         if (symbol.kind === 'hexagon') removedHexagons.add(symbol.index)
         if (symbol.kind === 'negator') continue
@@ -398,6 +468,9 @@ export function evaluatePathConstraints(
         colorSquares: symbols.colorSquares.filter((_, index) => !removedColorSquares.has(index)),
         starTargets: symbols.starTargets.filter((_, index) => !removedStars.has(index)),
         triangleTargets: symbols.triangleTargets.filter((_, index) => !removedTriangles.has(index)),
+        minesweeperTargets: symbols.minesweeperTargets.filter((_, index) => !removedMinesweeper.has(index)),
+        waterDropletTargets: symbols.waterDropletTargets.filter((_, index) => !removedWaterDroplets.has(index)),
+        cardinalTargets: symbols.cardinalTargets.filter((_, index) => !removedCardinals.has(index)),
         polyominoSymbols: symbols.polyominoSymbols.filter((_, index) => !removedPolyominoes.has(index)),
         hexTargets: symbols.hexTargets.filter((_, index) => !removedHexagons.has(index)),
         negatorTargets: symbols.negatorTargets.filter((_, index) => !removedNegators.has(index)),

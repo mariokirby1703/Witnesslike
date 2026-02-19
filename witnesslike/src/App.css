@@ -6,6 +6,17 @@
   gap: 2.5rem;
 }
 
+.app.puzzle {
+  --puzzle-chrome-height: 15rem;
+  max-width: 1040px;
+  height: 100dvh;
+  max-height: 100dvh;
+  padding: clamp(0.7rem, 2vh, 1.4rem) clamp(0.7rem, 2vw, 1.8rem);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: clamp(0.55rem, 1.8vh, 1.1rem);
+  overflow: hidden;
+}
+
 .home-hero {
   display: grid;
   gap: 0.8rem;
@@ -261,12 +272,30 @@
   display: grid;
   justify-items: center;
   gap: 0.6rem;
+  width: min(100%, 760px);
+  margin: 0 auto;
+}
+
+.puzzle-buttons {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.puzzle-buttons .btn {
+  width: 100%;
+  min-height: 2.85rem;
+  padding: 0.6rem 0.85rem;
+  font-size: clamp(0.78rem, 1.55vw, 0.94rem);
+  line-height: 1.15;
 }
 
 .puzzle-hint {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: 0.84rem;
   color: var(--ink-soft);
+  text-align: center;
 }
 
 .btn {
@@ -310,16 +339,19 @@
   background: #0f2439;
   border: 4px solid #3a597c;
   border-radius: 18px;
-  padding: 1.2rem;
+  padding: clamp(0.6rem, 1.7vmin, 1.2rem);
   display: grid;
   place-items: center;
   box-shadow: 0 24px 44px rgba(0, 0, 0, 0.5);
+  min-height: 0;
 }
 
 .board {
-  width: min(90vmin, 780px);
+  width: min(92vw, calc(100dvh - var(--puzzle-chrome-height)), 780px);
   max-width: 100%;
+  max-height: 100%;
   height: auto;
+  aspect-ratio: 1 / 1;
   display: block;
   touch-action: none;
 }
@@ -369,6 +401,46 @@
 .triangle-target {
   fill: #ff8a00;
   stroke: none;
+}
+
+.water-droplet {
+  fill: #22c4e5;
+  stroke: none;
+}
+
+.water-droplet-rim {
+  fill: none;
+  stroke-width: 0.018;
+  stroke-linejoin: round;
+}
+
+.water-droplet-gloss {
+  fill: rgba(243, 252, 255, 0.36);
+  pointer-events: none;
+}
+
+.water-droplet-bubble {
+  fill: rgba(243, 252, 255, 0.24);
+  pointer-events: none;
+}
+
+.cardinal-body {
+  stroke: none;
+}
+
+.cardinal-chevron {
+  fill: none;
+  stroke-width: 0.055;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+
+.mine-number-shadow {
+  fill: #2e3035;
+}
+
+.mine-number-fill {
+  fill: #8f939b;
 }
 
 .polyomino-block {
@@ -422,6 +494,47 @@
 
 .tile-triangle {
   fill: #ff8a00;
+}
+
+.tile-water-droplet {
+  fill: #22c4e5;
+  stroke: none;
+  filter: drop-shadow(0 2px 4px rgba(34, 196, 229, 0.2));
+}
+
+.tile-water-droplet-rim {
+  fill: none;
+  stroke: rgba(209, 244, 253, 0.62);
+  stroke-width: 3.2;
+  stroke-linejoin: round;
+}
+
+.tile-water-droplet-gloss {
+  fill: rgba(242, 251, 255, 0.45);
+}
+
+.tile-water-droplet-bubble {
+  fill: rgba(242, 251, 255, 0.28);
+}
+
+.tile-cardinal-body {
+  fill: #ef2df5;
+}
+
+.tile-cardinal-chevron {
+  fill: none;
+  stroke: #ef2df5;
+  stroke-width: 7.8;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+
+.tile-mine-shadow {
+  fill: #2e3035;
+}
+
+.tile-mine-fill {
+  fill: #8f939b;
 }
 
 .tile-poly {
@@ -544,6 +657,12 @@
     padding: 2.2rem 1.4rem 3rem;
   }
 
+  .app.puzzle {
+    --puzzle-chrome-height: 13.2rem;
+    padding: clamp(0.45rem, 1.4vh, 0.8rem) clamp(0.45rem, 2.4vw, 0.8rem);
+    gap: clamp(0.45rem, 1.2vh, 0.75rem);
+  }
+
   .puzzle-top {
     padding-left: 4rem;
   }
@@ -558,6 +677,16 @@
   }
 
   .board {
-    width: min(94vmin, 780px);
+    width: min(96vw, calc(100dvh - var(--puzzle-chrome-height)), 780px);
+  }
+
+  .puzzle-buttons {
+    gap: 0.45rem;
+  }
+
+  .puzzle-buttons .btn {
+    min-height: 2.6rem;
+    padding: 0.5rem 0.6rem;
+    font-size: clamp(0.72rem, 2.4vw, 0.86rem);
   }
 }

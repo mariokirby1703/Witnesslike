@@ -1,10 +1,13 @@
 import type { Point } from '../puzzleConstants'
 import type { ArrowTarget } from './arrows'
 import type { ColorSquare } from './colorSquares'
+import type { CardinalTarget } from './cardinal'
 import type { HexTarget } from './hexagon'
+import type { MinesweeperNumberTarget } from './minesweeperNumbers'
 import type { PolyominoSymbol } from './polyomino'
 import type { StarTarget } from './stars'
 import type { TriangleTarget } from './triangles'
+import type { WaterDropletTarget } from './waterDroplet'
 import {
   COLOR_PALETTE,
   buildCellRegions,
@@ -79,6 +82,9 @@ export function generateNegatorsForEdges(
   colorSquares: ColorSquare[],
   starTargets: StarTarget[],
   triangleTargets: TriangleTarget[],
+  minesweeperTargets: MinesweeperNumberTarget[],
+  waterDropletTargets: WaterDropletTarget[],
+  cardinalTargets: CardinalTarget[],
   polyominoSymbols: PolyominoSymbol[],
   hexTargets: HexTarget[],
   starsActive: boolean,
@@ -110,6 +116,15 @@ export function generateNegatorsForEdges(
   })
   triangleTargets.forEach((target, index) => {
     addRemovable(`triangle:${index}`, regions.get(`${target.cellX},${target.cellY}`))
+  })
+  minesweeperTargets.forEach((target, index) => {
+    addRemovable(`mine:${index}`, regions.get(`${target.cellX},${target.cellY}`))
+  })
+  waterDropletTargets.forEach((target, index) => {
+    addRemovable(`water:${index}`, regions.get(`${target.cellX},${target.cellY}`))
+  })
+  cardinalTargets.forEach((target, index) => {
+    addRemovable(`cardinal:${index}`, regions.get(`${target.cellX},${target.cellY}`))
   })
   polyominoSymbols.forEach((target, index) => {
     addRemovable(`poly:${index}`, regions.get(`${target.cellX},${target.cellY}`))

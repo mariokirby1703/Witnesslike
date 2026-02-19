@@ -1,9 +1,14 @@
+import { minesweeperDigitPixels } from './symbols/minesweeperNumbers'
+
 export type TileKind =
   | 'gap-line'
   | 'hexagon'
   | 'color-squares'
   | 'stars'
   | 'arrows'
+  | 'minesweeper-numbers'
+  | 'water-droplet'
+  | 'cardinal'
   | 'triangles'
   | 'negator'
   | 'polyomino'
@@ -142,6 +147,101 @@ function SymbolTile({ kind, variant = 'grid' }: { kind: TileKind; variant?: 'gri
     )
   }
 
+  if (kind === 'minesweeper-numbers') {
+    const tileDigits: Array<{ value: 1 | 2 | 3 | 4; col: 0 | 1; row: 0 | 1 }> = [
+      { value: 1, col: 0, row: 0 },
+      { value: 2, col: 1, row: 0 },
+      { value: 3, col: 0, row: 1 },
+      { value: 4, col: 1, row: 1 },
+    ]
+    const pixel = 5.5
+    const digitWidth = 5 * pixel
+    const digitHeight = 7 * pixel
+    const gapX = 14
+    const gapY = 8
+    const blockWidth = digitWidth * 2 + gapX
+    const blockHeight = digitHeight * 2 + gapY
+    const originX = (100 - blockWidth) / 2
+    const originY = (100 - blockHeight) / 2
+    const shadowOffset = 1.1
+    return (
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        {tileDigits.map((digit) => {
+          const pixels = minesweeperDigitPixels(digit.value)
+          const baseX = originX + digit.col * (digitWidth + gapX)
+          const baseY = originY + digit.row * (digitHeight + gapY)
+          return (
+            <g key={`mine-tile-shadow-${digit.value}`}>
+              {pixels.map((point, index) => (
+                <rect
+                  key={`mine-tile-shadow-${digit.value}-${index}`}
+                  className="tile-mine-shadow"
+                  x={baseX + point.x * pixel + shadowOffset}
+                  y={baseY + point.y * pixel + shadowOffset}
+                  width={pixel}
+                  height={pixel}
+                  rx="0"
+                />
+              ))}
+            </g>
+          )
+        })}
+        {tileDigits.map((digit) => {
+          const pixels = minesweeperDigitPixels(digit.value)
+          const baseX = originX + digit.col * (digitWidth + gapX)
+          const baseY = originY + digit.row * (digitHeight + gapY)
+          return (
+            <g key={`mine-tile-fill-${digit.value}`}>
+              {pixels.map((point, index) => (
+                <rect
+                  key={`mine-tile-fill-${digit.value}-${index}`}
+                  className="tile-mine-fill"
+                  x={baseX + point.x * pixel}
+                  y={baseY + point.y * pixel}
+                  width={pixel}
+                  height={pixel}
+                  rx="0"
+                />
+              ))}
+            </g>
+          )
+        })}
+      </svg>
+    )
+  }
+
+  if (kind === 'water-droplet') {
+    const dropletPath =
+      'M50 14 C67 30 77 44 77 60 C77 79 65 93 50 93 C35 93 23 79 23 60 C23 44 33 30 50 14 Z'
+    return (
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <g transform="translate(0 -3.5)">
+          <path className="tile-water-droplet" d={dropletPath} />
+          <path className="tile-water-droplet-rim" d={dropletPath} />
+          <ellipse className="tile-water-droplet-gloss" cx="43" cy="39" rx="9.5" ry="6.8" transform="rotate(-24 43 39)" />
+          <circle className="tile-water-droplet-bubble" cx="58.5" cy="65" r="3.8" />
+        </g>
+      </svg>
+    )
+  }
+
+  if (kind === 'cardinal') {
+    return (
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <g transform="translate(50 50)">
+          <rect className="tile-cardinal-body" x={-6.5} y={-25} width={13} height={17.5} rx={5.2} />
+          <rect className="tile-cardinal-body" x={-6.5} y={7.5} width={13} height={17.5} rx={5.2} />
+          <rect className="tile-cardinal-body" x={-25} y={-6.5} width={17.5} height={13} rx={5.2} />
+          <rect className="tile-cardinal-body" x={7.5} y={-6.5} width={17.5} height={13} rx={5.2} />
+          <polyline className="tile-cardinal-chevron" points="-13,-30 0,-43 13,-30" />
+          <polyline className="tile-cardinal-chevron" points="30,-13 43,0 30,13" />
+          <polyline className="tile-cardinal-chevron" points="13,30 0,43 -13,30" />
+          <polyline className="tile-cardinal-chevron" points="-30,13 -43,0 -30,-13" />
+        </g>
+      </svg>
+    )
+  }
+
   if (kind === 'negator') {
     return (
       <svg viewBox="0 0 100 100" aria-hidden="true">
@@ -213,6 +313,9 @@ function HomePage({ tiles, selectedIds, onToggle, onStart }: HomePageProps) {
     selectedKinds.has('color-squares') ||
     selectedKinds.has('stars') ||
     selectedKinds.has('arrows') ||
+    selectedKinds.has('minesweeper-numbers') ||
+    selectedKinds.has('water-droplet') ||
+    selectedKinds.has('cardinal') ||
     selectedKinds.has('triangles') ||
     selectedKinds.has('polyomino') ||
     selectedKinds.has('rotated-polyomino') ||
