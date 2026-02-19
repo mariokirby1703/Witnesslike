@@ -44,7 +44,7 @@
 
 .back-button:hover {
   transform: translateX(-2px);
-  box-shadow: 0 16px 30px rgba(31, 110, 140, 0.18);
+  box-shadow: 0 16px 30px rgba(76, 185, 255, 0.22);
 }
 
 .puzzle-hero h1 {
@@ -78,8 +78,8 @@
 
 .symbol-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 1.2rem;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1.35rem;
 }
 
 .symbol-tile {
@@ -107,16 +107,16 @@
 
 .symbol-button.active:hover {
   transform: translateY(-3px);
-  border-color: rgba(31, 110, 140, 0.4);
-  box-shadow: 0 18px 30px rgba(31, 110, 140, 0.2);
+  border-color: rgba(76, 185, 255, 0.42);
+  box-shadow: 0 18px 30px rgba(76, 185, 255, 0.24);
 }
 
 .symbol-button.selected {
   border: 2px solid var(--accent);
-  background: linear-gradient(180deg, rgba(47, 143, 178, 0.18), rgba(47, 143, 178, 0.04));
+  background: linear-gradient(180deg, rgba(76, 185, 255, 0.24), rgba(76, 185, 255, 0.08));
   box-shadow:
-    0 0 0 3px rgba(31, 110, 140, 0.24),
-    0 22px 36px rgba(31, 110, 140, 0.32);
+    0 0 0 3px rgba(76, 185, 255, 0.28),
+    0 22px 36px rgba(0, 0, 0, 0.5);
   transform: translateY(-2px);
 }
 
@@ -143,7 +143,7 @@
 }
 
 .symbol-label {
-  font-size: 0.9rem;
+  font-size: 0.84rem;
   color: var(--ink-soft);
   transition: color 0.2s ease, font-weight 0.2s ease;
 }
@@ -154,44 +154,49 @@
 
 .symbol-tile.selected .symbol-label {
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .symbol-tile.prereq-locked .symbol-label {
-  color: rgba(18, 25, 29, 0.45);
+  color: rgba(231, 238, 248, 0.45);
 }
 
 .tile-stroke {
-  stroke: #1f6e8c;
+  stroke: var(--accent);
   stroke-width: 8;
   stroke-linecap: round;
   fill: none;
 }
 
 .tile-fill {
-  fill: #1f6e8c;
+  fill: var(--accent);
 }
 
 .symbol-button .tile-stroke {
-  fill: #1f6e8c;
+  fill: var(--accent);
   stroke: none;
 }
 
 .tile-stroke.muted {
-  stroke: rgba(31, 110, 140, 0.5);
+  stroke: rgba(76, 185, 255, 0.5);
 }
 
 .tile-fill.muted {
-  fill: rgba(31, 110, 140, 0.5);
+  fill: rgba(76, 185, 255, 0.5);
 }
 
 .tile-gap {
   fill: var(--panel);
 }
 
+.tile-gap-block {
+  fill: var(--accent);
+  stroke: none;
+}
+
 .tile-hex {
   stroke: none;
-  fill: #bdbdbd;
+  fill: #9caec7;
 }
 
 .home-actions {
@@ -200,6 +205,9 @@
   justify-content: space-between;
   align-items: center;
   gap: 1.4rem;
+  position: sticky;
+  bottom: max(0.75rem, env(safe-area-inset-bottom));
+  z-index: 20;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 22px;
@@ -220,6 +228,33 @@
   font-size: 1.2rem;
   font-weight: 600;
   color: var(--ink);
+}
+
+.selected-symbols-order {
+  margin-top: 0.7rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.selected-symbol-chip {
+  width: 3.8rem;
+  height: 3.8rem;
+  border-radius: 1rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  display: grid;
+  place-items: center;
+}
+
+.selected-symbol-icon {
+  width: 2.9rem;
+  height: 2.9rem;
+}
+
+.selected-symbol-icon svg {
+  width: 100%;
+  height: 100%;
 }
 
 .puzzle-actions {
@@ -252,9 +287,9 @@
 }
 
 .btn.primary {
-  background: linear-gradient(135deg, #1f6e8c, #2f8fb2);
+  background: linear-gradient(135deg, #1d7dd4, #4cb9ff);
   color: white;
-  box-shadow: 0 14px 26px rgba(31, 110, 140, 0.25);
+  box-shadow: 0 14px 26px rgba(13, 30, 52, 0.55);
 }
 
 .btn.primary:hover:not(:disabled) {
@@ -272,13 +307,13 @@
 }
 
 .board-shell {
-  background: #2a9be6;
-  border: 4px solid #1f1b17;
+  background: #0f2439;
+  border: 4px solid #3a597c;
   border-radius: 18px;
   padding: 1.2rem;
   display: grid;
   place-items: center;
-  box-shadow: 0 20px 40px rgba(31, 27, 23, 0.22);
+  box-shadow: 0 24px 44px rgba(0, 0, 0, 0.5);
 }
 
 .board {
@@ -290,24 +325,24 @@
 }
 
 .board-bg {
-  fill: #3ca7e8;
-  stroke: rgba(255, 255, 255, 0.3);
+  fill: #173a57;
+  stroke: rgba(183, 214, 245, 0.4);
   stroke-width: 0.08;
   rx: 0.35;
 }
 
 .edges line {
-  stroke: #f7f7f5;
+  stroke: #d7e7fb;
   stroke-width: 0.28;
   stroke-linecap: round;
 }
 
 .gaps .gap {
-  fill: #3ca7e8;
+  fill: #173a57;
 }
 
 .hexagon {
-  fill: #bdbdbd;
+  fill: #9caec7;
   stroke: none;
 }
 
@@ -405,26 +440,32 @@
   stroke-width: 0.34;
   stroke-linecap: round;
   stroke-linejoin: round;
-  filter: drop-shadow(0 0.3px 0.35px rgba(255, 212, 91, 0.6));
+  filter: drop-shadow(0 0 0.12px rgba(255, 212, 91, 0.28));
   transition: stroke 0.2s ease, filter 0.2s ease;
   pointer-events: none;
 }
 
+.path.auto-solving {
+  filter: none;
+  transition: none;
+}
+
 .board.success .path {
   stroke: #6ff29d;
-  filter: drop-shadow(0 0.35px 0.45px rgba(111, 242, 157, 0.7));
+  filter: drop-shadow(0 0 0.14px rgba(111, 242, 157, 0.32));
 }
 
 .board.fail .path {
   stroke: #ff6b6b;
-  filter: drop-shadow(0 0.35px 0.45px rgba(255, 107, 107, 0.7));
+  filter: drop-shadow(0 0 0.14px rgba(255, 107, 107, 0.32));
 }
 
 .start {
-  fill: #f7f7f5;
-  stroke: #f7f7f5;
+  fill: #d7e7fb;
+  stroke: #d7e7fb;
   stroke-width: 0.08;
   cursor: pointer;
+  filter: none;
 }
 
 .start.active {
@@ -464,23 +505,37 @@
 }
 
 .end-cap {
-  stroke: #f7f7f5;
-  stroke-width: 0.26;
+  stroke: #d7e7fb;
+  stroke-width: 0.34;
   stroke-linecap: round;
   fill: none;
   pointer-events: none;
+  filter: none;
+  transition: stroke 0.2s ease;
+}
+
+.board.can-check .end-cap {
+  stroke: #ffd45b;
+}
+
+.board.success .end-cap {
+  stroke: #6ff29d;
+}
+
+.board.fail .end-cap {
+  stroke: #ff6b6b;
 }
 
 .cursor {
   fill: #ffd45b;
-  stroke: #f7f7f5;
+  stroke: #dfeaf8;
   stroke-width: 0.06;
   pointer-events: none;
 }
 
 @media (max-width: 1100px) {
   .symbol-grid {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 

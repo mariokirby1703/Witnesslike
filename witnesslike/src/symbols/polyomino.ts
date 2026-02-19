@@ -187,7 +187,10 @@ function tileRegionWithShapes(
     }
     if (!bestOptions || bestOptions.length === 0) return null
 
-    const shuffled = shuffle(bestOptions, rng).sort((a, b) => b.shape.size - a.shape.size)
+    const preferLargeFirst = rng() < 0.58
+    const shuffled = shuffle(bestOptions, rng).sort((a, b) =>
+      preferLargeFirst ? b.shape.size - a.shape.size : a.shape.size - b.shape.size
+    )
     for (const placement of shuffled) {
       if (!placement.cells.every((cell) => remaining.has(cell))) continue
       const nextRemaining = new Set(remaining)
@@ -355,26 +358,42 @@ function generatePositivePolyominoSymbolsForEdges(
   colorPalette: string[],
   rotatable: boolean,
   maxSymbols: number,
-  preferredPath?: Point[]
+  preferredPath?: Point[],
+  blockedRegionIds?: Set<number>
 ) {
   if (maxSymbols <= 0) return null
   const rng = mulberry32(seed)
   const solutionPath =
-    preferredPath ?? findBestLoopyPathByRegions(edges, rng, 200, 8) ?? findRandomPath(edges, rng)
+    preferredPath ?? findBestLoopyPathByRegions(edges, rng, 72, 8) ?? findRandomPath(edges, rng)
   if (!solutionPath) return null
 
   const { regionCells } = buildRegionCellsForPath(solutionPath)
-  const candidateRegions = shuffle(
-    Array.from(regionCells.entries())
-      .map(([id, cells]) => ({ id, cells }))
-      .filter((region) => region.cells.length <= 10),
+  const allRegions = Array.from(regionCells.entries()).map(([id, cells]) => ({ id, cells }))
+  let candidateRegions = shuffle(
+    allRegions.filter(
+      (region) =>
+        region.cells.length <= 12 &&
+        (!blockedRegionIds || !blockedRegionIds.has(region.id))
+    ),
     rng
   )
+  if (candidateRegions.length === 0) {
+    candidateRegions = shuffle(
+      allRegions.filter((region) => !blockedRegionIds || !blockedRegionIds.has(region.id)),
+      rng
+    )
+  }
 
-  const targetRegions = Math.min(candidateRegions.length, minRegions + randInt(rng, 2))
+  const additionalRegionBudget =
+    candidateRegions.length >= 4 ? 3 : candidateRegions.length >= 2 ? 2 : 1
+  const targetRegions = Math.min(
+    candidateRegions.length,
+    minRegions + randInt(rng, additionalRegionBudget)
+  )
   if (candidateRegions.length < minRegions) return null
 
   const symbols: PolyominoSymbol[] = []
+  const usedRegionIds: number[] = []
   let placedRegions = 0
   let totalArea = 0
   for (const region of candidateRegions) {
@@ -402,13 +421,15 @@ function generatePositivePolyominoSymbolsForEdges(
       })
       totalArea += tiling[i].size
     }
+    usedRegionIds.push(region.id)
     placedRegions += 1
   }
 
   if (placedRegions < minRegions) return null
-  if (totalArea < 4) return null
+  const minimumTotalArea = maxSymbols >= 3 ? 4 : maxSymbols === 2 ? 3 : 1
+  if (totalArea < minimumTotalArea) return null
 
-  return { symbols, solutionPath }
+  return { symbols, solutionPath, usedRegionIds }
 }
 
 export function generatePolyominoesForEdges(
@@ -418,7 +439,8 @@ export function generatePolyominoesForEdges(
   usedIconCells: Set<string>,
   colorPalette: string[],
   maxSymbols = 4,
-  preferredPath?: Point[]
+  preferredPath?: Point[],
+  blockedRegionIds?: Set<number>
 ) {
   return generatePositivePolyominoSymbolsForEdges(
     edges,
@@ -428,7 +450,8 @@ export function generatePolyominoesForEdges(
     colorPalette,
     false,
     maxSymbols,
-    preferredPath
+    preferredPath,
+    blockedRegionIds
   )
 }
 
@@ -439,7 +462,8 @@ export function generateRotatedPolyominoesForEdges(
   usedIconCells: Set<string>,
   colorPalette: string[],
   maxSymbols = 4,
-  preferredPath?: Point[]
+  preferredPath?: Point[],
+  blockedRegionIds?: Set<number>
 ) {
   return generatePositivePolyominoSymbolsForEdges(
     edges,
@@ -449,16 +473,27 @@ export function generateRotatedPolyominoesForEdges(
     colorPalette,
     true,
     maxSymbols,
-    preferredPath
+    preferredPath,
+    blockedRegionIds
   )
 }
 
-function pickNegativeShapeSize(rng: () => number, maxSize: number, minSize = 1) {
+function pickNegativeShapeSize(
+  rng: () => number,
+  maxSize: number,
+  minSize = 1,
+  complexityBoost = 0
+) {
+  const clampedBoost = Math.max(0, Math.min(1, complexityBoost))
+  const size1Weight = Math.max(8, Math.round(52 - 26 * clampedBoost))
+  const size2Weight = Math.max(14, Math.round(30 - 6 * clampedBoost))
+  const size3Weight = Math.round(12 + 18 * clampedBoost)
+  const size4Weight = Math.round(6 + 14 * clampedBoost)
   const weightedSizes = [
-    { size: 1, weight: 64 },
-    { size: 2, weight: 31 },
-    { size: 3, weight: 4 },
-    { size: 4, weight: 1 },
+    { size: 1, weight: size1Weight },
+    { size: 2, weight: size2Weight },
+    { size: 3, weight: size3Weight },
+    { size: 4, weight: size4Weight },
   ].filter((entry) => entry.size <= maxSize && entry.size >= minSize)
 
   const totalWeight = weightedSizes.reduce((sum, entry) => sum + entry.weight, 0)
@@ -479,16 +514,25 @@ function pickNegativePairShape(
 ) {
   const regionSet = new Set(regionCells.map((cell) => `${cell.x},${cell.y}`))
   const maxSize = Math.min(4, regionCells.length)
-  const minSize = requireRotated ? 2 : 1
+  const baseComplexityBoost =
+    regionCells.length >= 10
+      ? 1
+      : regionCells.length >= 8
+        ? 0.88
+        : regionCells.length >= 6
+          ? 0.68
+          : regionCells.length >= 4
+            ? 0.46
+            : 0.2
 
-  for (let attempt = 0; attempt < 42; attempt += 1) {
-    const size = pickNegativeShapeSize(rng, maxSize, minSize)
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const attemptComplexityBoost = Math.max(0, baseComplexityBoost - attempt * 0.035)
+    const size = pickNegativeShapeSize(rng, maxSize, 1, attemptComplexityBoost)
     const shapes = shuffle(SHAPES_BY_SIZE.get(size) ?? [], rng)
     for (const shape of shapes) {
       const hasMultipleRotations = rotationVariantsForShape(shape).length > 1
-      if (requireRotated && !hasMultipleRotations) continue
       const rotatable = requireRotated
-        ? allowRotated && hasMultipleRotations
+        ? allowRotated
         : allowRotated && hasMultipleRotations && rng() < 0.45
       const probe: PolyominoSymbol = {
         cellX: 0,
@@ -507,6 +551,43 @@ function pickNegativePairShape(
   return null
 }
 
+function pickPositivePairShape(
+  regionCells: Array<{ x: number; y: number }>,
+  rotatable: boolean,
+  rng: () => number,
+  avoidCanonicalShapeKey?: string
+) {
+  const regionSet = new Set(regionCells.map((cell) => `${cell.x},${cell.y}`))
+  const maxSize = Math.min(4, regionCells.length)
+
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const size = pickNegativeShapeSize(rng, maxSize, 1)
+    const shapes = shuffle(SHAPES_BY_SIZE.get(size) ?? [], rng)
+    const preferred = avoidCanonicalShapeKey
+      ? shapes.filter((shape) => canonicalRotationKey(shape.cells) !== avoidCanonicalShapeKey)
+      : shapes
+    const fallback = avoidCanonicalShapeKey
+      ? shapes.filter((shape) => canonicalRotationKey(shape.cells) === avoidCanonicalShapeKey)
+      : []
+
+    for (const shape of [...preferred, ...fallback]) {
+      const probe: PolyominoSymbol = {
+        cellX: 0,
+        cellY: 0,
+        shape,
+        color: DEFAULT_POSITIVE_POLYOMINO_COLOR,
+        rotatable,
+        negative: false,
+      }
+      if (listRequirementPlacements(probe, regionCells, regionSet).length > 0) {
+        return { shape, rotatable }
+      }
+    }
+  }
+
+  return null
+}
+
 export function generateNegativePolyominoesForEdges(
   edges: Set<string>,
   seed: number,
@@ -514,6 +595,7 @@ export function generateNegativePolyominoesForEdges(
   usedIconCells: Set<string>,
   colorPalette: string[],
   starsActive: boolean,
+  pairedPositiveRotatable: boolean,
   allowRotatedNegative: boolean,
   requireRotatedNegative: boolean,
   maxNegativeSymbols = 4,
@@ -524,26 +606,23 @@ export function generateNegativePolyominoesForEdges(
   if (requireRotatedNegative && !allowRotatedNegative) return null
   const rng = mulberry32(seed)
   const solutionPath =
-    preferredPath ?? findBestLoopyPathByRegions(edges, rng, 200, 8) ?? findRandomPath(edges, rng)
+    preferredPath ?? findBestLoopyPathByRegions(edges, rng, 72, 8) ?? findRandomPath(edges, rng)
   if (!solutionPath) return null
 
   const { regions, regionCells } = buildRegionCellsForPath(solutionPath)
-  const positiveByRegion = new Map<number, PolyominoSymbol[]>()
-  for (const symbol of positiveSymbols) {
-    if (symbol.negative) continue
-    const region = regions.get(`${symbol.cellX},${symbol.cellY}`)
-    if (region === undefined) continue
-    if (!positiveByRegion.has(region)) positiveByRegion.set(region, [])
-    positiveByRegion.get(region)?.push(symbol)
-  }
-
   const regionFreeCells = new Map<number, Array<{ x: number; y: number }>>()
   for (const [regionId, cells] of regionCells.entries()) {
-    if (!positiveByRegion.has(regionId)) continue
     const free = cells.filter((cell) => !usedIconCells.has(`${cell.x},${cell.y}`))
     if (free.length >= 2) {
       regionFreeCells.set(regionId, shuffle(free, rng))
     }
+  }
+  const regionSymbols = new Map<number, PolyominoSymbol[]>()
+  for (const symbol of positiveSymbols) {
+    const regionId = regions.get(`${symbol.cellX},${symbol.cellY}`)
+    if (regionId === undefined) continue
+    if (!regionSymbols.has(regionId)) regionSymbols.set(regionId, [])
+    regionSymbols.get(regionId)?.push(symbol)
   }
 
   const pairCapacityByCells = Array.from(regionFreeCells.values()).reduce(
@@ -553,16 +632,18 @@ export function generateNegativePolyominoesForEdges(
   const pairLimit = Math.min(4, maxNegativeSymbols, maxExtraPositiveSymbols, pairCapacityByCells)
   if (pairLimit <= 0) return null
 
-  let targetPairs = 1
-  if (pairLimit >= 2 && rng() < 0.34) targetPairs += 1
-  if (pairLimit >= 3 && rng() < 0.13) targetPairs += 1
-  if (pairLimit >= 4 && rng() < 0.05) targetPairs += 1
+  const seededPositiveCount = positiveSymbols.filter((symbol) => !symbol.negative).length
+  const twoPairBias = seededPositiveCount > 0 ? 0.72 : 0.58
+  const minDesiredPairs = pairLimit >= 2 && rng() < twoPairBias ? 2 : 1
+  let targetPairs = minDesiredPairs
+  if (pairLimit >= 3 && rng() < 0.4) targetPairs += 1
+  if (pairLimit >= 4 && rng() < 0.2) targetPairs += 1
   targetPairs = Math.min(targetPairs, pairLimit)
 
   const negativeSymbols: PolyominoSymbol[] = []
   const pairedPositiveSymbols: PolyominoSymbol[] = []
 
-  for (let attempt = 0; attempt < 90 && negativeSymbols.length < targetPairs; attempt += 1) {
+  for (let attempt = 0; attempt < 72 && negativeSymbols.length < targetPairs; attempt += 1) {
     const viableRegions = Array.from(regionFreeCells.entries())
       .filter(([, free]) => free.length >= 2)
       .map(([regionId]) => regionId)
@@ -573,37 +654,55 @@ export function generateNegativePolyominoesForEdges(
     const free = regionFreeCells.get(regionId)
     if (!cells || !free || free.length < 2) continue
 
-    const shapeChoice = pickNegativePairShape(
+    const negativeShapeChoice = pickNegativePairShape(
       cells,
       allowRotatedNegative,
       requireRotatedNegative,
       rng
     )
-    if (!shapeChoice) continue
+    if (!negativeShapeChoice) continue
+    const positiveShapeChoice = pickPositivePairShape(
+      cells,
+      pairedPositiveRotatable,
+      rng,
+      canonicalRotationKey(negativeShapeChoice.shape.cells)
+    )
+    if (!positiveShapeChoice) continue
 
     const iconCells = shuffle([...free], rng).slice(0, 2)
     if (iconCells.length < 2) continue
 
     const [positiveCell, negativeCell] = iconCells
     const positiveColor = colorPalette[randInt(rng, colorPalette.length)]
-    pairedPositiveSymbols.push({
+    const nextPositiveSymbol: PolyominoSymbol = {
       cellX: positiveCell.x,
       cellY: positiveCell.y,
-      shape: shapeChoice.shape,
+      shape: positiveShapeChoice.shape,
       color: positiveColor,
-      rotatable: shapeChoice.rotatable,
+      rotatable: positiveShapeChoice.rotatable,
       negative: false,
-    })
-    negativeSymbols.push({
+    }
+    const nextNegativeSymbol: PolyominoSymbol = {
       cellX: negativeCell.x,
       cellY: negativeCell.y,
-      shape: shapeChoice.shape,
+      shape: negativeShapeChoice.shape,
       color: starsActive
         ? colorPalette[randInt(rng, colorPalette.length)]
         : NEGATIVE_POLYOMINO_COLOR,
-      rotatable: shapeChoice.rotatable,
+      rotatable: negativeShapeChoice.rotatable,
       negative: true,
-    })
+    }
+
+    const existingRegionSymbols = regionSymbols.get(regionId) ?? []
+    if (!canTileRegion(cells, [...existingRegionSymbols, nextPositiveSymbol, nextNegativeSymbol])) {
+      continue
+    }
+
+    pairedPositiveSymbols.push(nextPositiveSymbol)
+    negativeSymbols.push(nextNegativeSymbol)
+    if (!regionSymbols.has(regionId)) regionSymbols.set(regionId, [])
+    const symbolsInRegion = regionSymbols.get(regionId)
+    symbolsInRegion?.push(nextPositiveSymbol, nextNegativeSymbol)
 
     usedIconCells.add(`${positiveCell.x},${positiveCell.y}`)
     usedIconCells.add(`${negativeCell.x},${negativeCell.y}`)
@@ -617,7 +716,7 @@ export function generateNegativePolyominoesForEdges(
     )
   }
 
-  if (negativeSymbols.length === 0) return null
+  if (negativeSymbols.length < minDesiredPairs) return null
   return { negativeSymbols, pairedPositiveSymbols, solutionPath }
 }
 

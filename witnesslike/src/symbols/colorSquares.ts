@@ -4,6 +4,7 @@ import {
   buildCellRegions,
   edgesFromPath,
   findBestLoopyPathByRegions,
+  findRandomPath,
   mulberry32,
   randInt,
   regionCountForPath,
@@ -40,7 +41,8 @@ export function generateColorSquaresForEdges(
   seed: number,
   desiredColorCount: number,
   selectedSymbolCount = 1,
-  colorPool?: string[]
+  colorPool?: string[],
+  preferredPath?: Point[]
 ) {
   const availableColors =
     colorPool && colorPool.length > 0
@@ -48,12 +50,13 @@ export function generateColorSquaresForEdges(
       : COLOR_PALETTE
   const effectiveColorCount = Math.max(1, Math.min(desiredColorCount, availableColors.length))
   const rng = mulberry32(seed)
-  const path = findBestLoopyPathByRegions(edges, rng, 260, 12)
+  const path =
+    preferredPath ?? findBestLoopyPathByRegions(edges, rng, 110, 10) ?? findRandomPath(edges, rng)
   if (!path) return null
   const regionCount = regionCountForPath(path)
   if (regionCount < effectiveColorCount) return null
 
-  for (let attempt = 0; attempt < 60; attempt += 1) {
+  for (let attempt = 0; attempt < 36; attempt += 1) {
     const localRng = mulberry32(seed + 4242 + attempt * 97)
     const usedEdges = edgesFromPath(path)
     const regions = buildCellRegions(usedEdges)

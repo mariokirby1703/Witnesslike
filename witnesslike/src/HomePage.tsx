@@ -9,6 +9,7 @@ export type TileKind =
   | 'polyomino'
   | 'rotated-polyomino'
   | 'negative-polyomino'
+  | 'rotated-negative-polyomino'
   | 'placeholder'
 
 export type Tile = {
@@ -26,7 +27,7 @@ type HomePageProps = {
   onStart: () => void
 }
 
-function SymbolTile({ kind }: { kind: TileKind }) {
+function SymbolTile({ kind, variant = 'grid' }: { kind: TileKind; variant?: 'grid' | 'selected' }) {
   const starSvgPoints = (cx: number, cy: number, outer: number, inner: number, spikes = 8) => {
     const points: string[] = []
     const step = Math.PI / spikes
@@ -41,10 +42,25 @@ function SymbolTile({ kind }: { kind: TileKind }) {
   }
 
   if (kind === 'gap-line') {
+    const isSelectedVariant = variant === 'selected'
     return (
       <svg viewBox="0 0 100 100" aria-hidden="true">
-        <rect x="12" y="42" width="32" height="16" rx="0" className="tile-stroke" />
-        <rect x="56" y="42" width="32" height="16" rx="0" className="tile-stroke" />
+        <rect
+          x={isSelectedVariant ? 8 : 12}
+          y="42"
+          width={isSelectedVariant ? 24 : 32}
+          height="16"
+          rx="0"
+          className={isSelectedVariant ? 'tile-gap-block' : 'tile-stroke'}
+        />
+        <rect
+          x={isSelectedVariant ? 68 : 56}
+          y="42"
+          width={isSelectedVariant ? 24 : 32}
+          height="16"
+          rx="0"
+          className={isSelectedVariant ? 'tile-gap-block' : 'tile-stroke'}
+        />
       </svg>
     )
   }
@@ -155,9 +171,20 @@ function SymbolTile({ kind }: { kind: TileKind }) {
     return (
       <svg viewBox="0 0 100 100" aria-hidden="true">
         <rect x="39" y="20" width="22" height="22" rx="0" className="tile-poly-negative" />
-        <rect x="6" y="56" width="22" height="22" rx="0" className="tile-poly-negative" />
+        <rect x="4" y="56" width="22" height="22" rx="0" className="tile-poly-negative" />
         <rect x="39" y="56" width="22" height="22" rx="0" className="tile-poly-negative" />
-        <rect x="72" y="56" width="22" height="22" rx="0" className="tile-poly-negative" />
+        <rect x="74" y="56" width="22" height="22" rx="0" className="tile-poly-negative" />
+      </svg>
+    )
+  }
+
+  if (kind === 'rotated-negative-polyomino') {
+    return (
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <g transform="rotate(-12 50 50)">
+          <rect x="21" y="39" width="22" height="22" rx="0" className="tile-poly-negative" />
+          <rect x="57" y="39" width="22" height="22" rx="0" className="tile-poly-negative" />
+        </g>
       </svg>
     )
   }
@@ -173,6 +200,9 @@ function SymbolTile({ kind }: { kind: TileKind }) {
 function HomePage({ tiles, selectedIds, onToggle, onStart }: HomePageProps) {
   const selectedCount = selectedIds.length
   const maxReached = selectedCount >= 4
+  const selectedTilesInOrder = selectedIds
+    .map((id) => tiles.find((tile) => tile.id === id))
+    .filter((tile): tile is Tile => tile !== undefined)
   const selectedKinds = new Set(
     tiles
       .filter((tile) => selectedIds.includes(tile.id))
@@ -186,13 +216,14 @@ function HomePage({ tiles, selectedIds, onToggle, onStart }: HomePageProps) {
     selectedKinds.has('triangles') ||
     selectedKinds.has('polyomino') ||
     selectedKinds.has('rotated-polyomino') ||
-    selectedKinds.has('negative-polyomino')
+    selectedKinds.has('negative-polyomino') ||
+    selectedKinds.has('rotated-negative-polyomino')
   return (
     <div className="app home">
       <header className="home-hero">
         <div>
-          <p className="eyebrow">Witness-like Archive</p>
-          <h1>Symbol Boards</h1>
+          <p className="eyebrow">Witness-like Puzzle Maker</p>
+          <h1>Symbol Selector</h1>
           <p className="subtitle">Select up to 4 symbols to generate mixed puzzles.</p>
         </div>
       </header>
@@ -200,7 +231,7 @@ function HomePage({ tiles, selectedIds, onToggle, onStart }: HomePageProps) {
         {tiles.map((tile) => {
           const isSelected = selectedIds.includes(tile.id)
           const missingPolyPrereq =
-            tile.kind === 'negative-polyomino' &&
+            (tile.kind === 'negative-polyomino' || tile.kind === 'rotated-negative-polyomino') &&
             !isSelected &&
             !selectedKinds.has('polyomino') &&
             !selectedKinds.has('rotated-polyomino')
@@ -234,9 +265,17 @@ function HomePage({ tiles, selectedIds, onToggle, onStart }: HomePageProps) {
       <section className="home-actions">
         <div>
           <p className="selection-title">Selected symbols</p>
-          <p className="selection-count">
-            {selectedCount} / 4
-          </p>
+          {selectedTilesInOrder.length > 0 && (
+            <div className="selected-symbols-order" aria-label="Selected symbols in chosen order">
+              {selectedTilesInOrder.map((tile) => (
+                <div className="selected-symbol-chip" key={`selected-${tile.id}`}>
+                  <div className="selected-symbol-icon" aria-hidden="true">
+                    <SymbolTile kind={tile.kind} variant="selected" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <button className="btn primary" onClick={onStart} disabled={selectedCount === 0}>
           Start puzzles

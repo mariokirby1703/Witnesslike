@@ -378,6 +378,7 @@ export function findBestLoopyPathByRegions(
 ) {
   let bestPath: Point[] | null = null
   let bestRegions = 0
+  let stagnantAttempts = 0
   const maxSteps = Math.max(20, edges.size - 4)
   for (let i = 0; i < attempts; i += 1) {
     const path = buildLoopyPath(edges, rng, minLength, maxSteps)
@@ -386,7 +387,12 @@ export function findBestLoopyPathByRegions(
     if (regionCount > bestRegions) {
       bestRegions = regionCount
       bestPath = path
+      stagnantAttempts = 0
+      if (bestRegions >= 7 && i >= Math.floor(attempts * 0.25)) break
+      continue
     }
+    stagnantAttempts += 1
+    if (bestRegions >= 5 && stagnantAttempts >= 45) break
   }
   return bestPath
 }

@@ -40,6 +40,8 @@ export type ConstraintEvaluation = {
   eliminatedSymbols: EliminatedSymbolRef[]
 }
 
+type ConstraintEvalMode = 'minimal' | 'first'
+
 type NegationTargetRef =
   | EliminatedSymbolRef
   | { kind: 'negator'; index: number }
@@ -260,7 +262,8 @@ function satisfiesBaseConstraints(
   if (
     activeKinds.includes('polyomino') ||
     activeKinds.includes('rotated-polyomino') ||
-    activeKinds.includes('negative-polyomino')
+    activeKinds.includes('negative-polyomino') ||
+    activeKinds.includes('rotated-negative-polyomino')
   ) {
     if (!checkPolyominoes(usedEdges, symbols.polyominoSymbols)) return false
   }
@@ -272,7 +275,8 @@ export function evaluatePathConstraints(
   path: Point[],
   usedEdges: Set<string>,
   activeKinds: TileKind[],
-  symbols: SolverSymbols
+  symbols: SolverSymbols,
+  mode: ConstraintEvalMode = 'minimal'
 ): ConstraintEvaluation {
   const noNegatorResult = {
     ok: satisfiesBaseConstraints(path, usedEdges, activeKinds, symbols),
@@ -290,13 +294,13 @@ export function evaluatePathConstraints(
   const removableSymbols: Array<NegationTargetRef & { region: number }> = []
   const failingKeys = buildFailingSymbolKeySet(path, usedEdges, symbols)
   const candidateKindPriority: Record<NegationTargetRef['kind'], number> = {
-    star: 0,
-    arrow: 1,
-    triangle: 2,
-    'color-square': 3,
-    hexagon: 4,
-    polyomino: 5,
-    negator: 6,
+    negator: 0,
+    star: 1,
+    arrow: 2,
+    triangle: 3,
+    'color-square': 4,
+    hexagon: 5,
+    polyomino: 6,
   }
 
   symbols.arrowTargets.forEach((target, index) => {
@@ -438,6 +442,7 @@ export function evaluatePathConstraints(
     if (negatorIndex >= negatorCandidates.length) {
       return testSelection()
     }
+    let best: ConstraintEvaluation | null = null
     for (const candidate of negatorCandidates[negatorIndex]) {
       const key = `${candidate.kind}:${candidate.index}`
       if (usedKeys.has(key)) continue
@@ -447,11 +452,21 @@ export function evaluatePathConstraints(
         target: { kind: candidate.kind, index: candidate.index },
       })
       const solved = search(negatorIndex + 1)
-      if (solved) return solved
+      if (mode === 'first' && solved) {
+        chosenNegations.pop()
+        usedKeys.delete(key)
+        return solved
+      }
+      if (
+        solved &&
+        (!best || solved.eliminatedSymbols.length < best.eliminatedSymbols.length)
+      ) {
+        best = solved
+      }
       chosenNegations.pop()
       usedKeys.delete(key)
     }
-    return null
+    return best
   }
 
   return search(0) ?? { ok: false, eliminatedNegatorIndexes: [], eliminatedSymbols: [] }
@@ -460,15 +475,25 @@ export function evaluatePathConstraints(
 export function findAnyValidSolutionPath(
   edges: Set<string>,
   activeKinds: TileKind[],
-  symbols: SolverSymbols
+  symbols: SolverSymbols,
+  maxVisitedNodes = Number.POSITIVE_INFINITY
 ) {
   const path: Point[] = [START]
   const usedEdges = new Set<string>()
   const visitedNodes = new Set<string>([pointKey(START)])
+  let visitedCount = 0
+  let aborted = false
 
   const dfs = (current: Point): boolean => {
+    if (aborted) return false
+    visitedCount += 1
+    if (visitedCount > maxVisitedNodes) {
+      aborted = true
+      return false
+    }
+
     if (isAtEnd(current)) {
-      return evaluatePathConstraints(path, usedEdges, activeKinds, symbols).ok
+      return evaluatePathConstraints(path, usedEdges, activeKinds, symbols, 'first').ok
     }
 
     const nextNodes = neighbors(current).sort((a, b) => {
