@@ -171,7 +171,7 @@ export function isWaterDropletContained(
 export function generateWaterDropletsForEdges(
   edges: Set<string>,
   seed: number,
-  _selectedSymbolCount: number,
+  selectedSymbolCount: number,
   blockedCells: Set<string>,
   starsActive: boolean,
   preferredColors?: string[],
@@ -250,13 +250,32 @@ export function generateWaterDropletsForEdges(
   const candidates = best.candidates
   if (candidates.length === 0 || !solutionPath) return null
 
-  const maxCount = 8
+  const normalizedSymbolCount = Math.max(1, selectedSymbolCount)
+  const minCount =
+    normalizedSymbolCount <= 2 ? 3 : normalizedSymbolCount === 3 ? 2 : 1
+  const maxCount =
+    normalizedSymbolCount <= 2 ? 6 : normalizedSymbolCount === 3 ? 4 : 3
   const uniqueCellCount = new Set(candidates.map((target) => `${target.cellX},${target.cellY}`)).size
   const maxAllowed = Math.min(maxCount, uniqueCellCount)
-  const minCount = 3
   if (maxAllowed < minCount) return null
 
-  const targetCount = minCount + randInt(rng, maxAllowed - minCount + 1)
+  const countDecay = normalizedSymbolCount <= 2 ? 0.65 : normalizedSymbolCount === 3 ? 0.95 : 1.35
+  const weightedCountOptions: Array<{ count: number; weight: number }> = []
+  let totalWeight = 0
+  for (let count = minCount; count <= maxAllowed; count += 1) {
+    const weight = 1 / (1 + (count - minCount) * countDecay)
+    weightedCountOptions.push({ count, weight })
+    totalWeight += weight
+  }
+  let roll = rng() * totalWeight
+  let targetCount = weightedCountOptions[weightedCountOptions.length - 1]?.count ?? minCount
+  for (const option of weightedCountOptions) {
+    roll -= option.weight
+    if (roll <= 0) {
+      targetCount = option.count
+      break
+    }
+  }
   const directionBuckets = new Map<WaterDropletDirection, WaterDropletPlacement[]>(
     DIRECTIONS.map((direction) => [direction, shuffle(
       candidates.filter((target) => target.direction === direction),

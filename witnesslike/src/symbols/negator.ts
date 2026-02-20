@@ -5,9 +5,15 @@ import type { CardinalTarget } from './cardinal'
 import type { HexTarget } from './hexagon'
 import type { MinesweeperNumberTarget } from './minesweeperNumbers'
 import type { PolyominoSymbol } from './polyomino'
+import type { SentinelTarget } from './sentinel'
+import type { SpinnerTarget } from './spinner'
 import type { StarTarget } from './stars'
 import type { TriangleTarget } from './triangles'
+import type { DotTarget } from './dots'
+import type { DiamondTarget } from './diamonds'
+import type { ChevronTarget } from './chevrons'
 import type { WaterDropletTarget } from './waterDroplet'
+import type { GhostTarget } from './ghost'
 import {
   COLOR_PALETTE,
   buildCellRegions,
@@ -82,11 +88,17 @@ export function generateNegatorsForEdges(
   colorSquares: ColorSquare[],
   starTargets: StarTarget[],
   triangleTargets: TriangleTarget[],
+  dotTargets: DotTarget[],
+  diamondTargets: DiamondTarget[],
+  chevronTargets: ChevronTarget[],
   minesweeperTargets: MinesweeperNumberTarget[],
   waterDropletTargets: WaterDropletTarget[],
   cardinalTargets: CardinalTarget[],
   polyominoSymbols: PolyominoSymbol[],
   hexTargets: HexTarget[],
+  sentinelTargets: SentinelTarget[],
+  spinnerTargets: SpinnerTarget[],
+  ghostTargets: GhostTarget[],
   starsActive: boolean,
   preferredColors: string[],
   preferredPath?: Point[]
@@ -117,6 +129,15 @@ export function generateNegatorsForEdges(
   triangleTargets.forEach((target, index) => {
     addRemovable(`triangle:${index}`, regions.get(`${target.cellX},${target.cellY}`))
   })
+  dotTargets.forEach((target, index) => {
+    addRemovable(`dot:${index}`, regions.get(`${target.cellX},${target.cellY}`))
+  })
+  diamondTargets.forEach((target, index) => {
+    addRemovable(`diamond:${index}`, regions.get(`${target.cellX},${target.cellY}`))
+  })
+  chevronTargets.forEach((target, index) => {
+    addRemovable(`chevron:${index}`, regions.get(`${target.cellX},${target.cellY}`))
+  })
   minesweeperTargets.forEach((target, index) => {
     addRemovable(`mine:${index}`, regions.get(`${target.cellX},${target.cellY}`))
   })
@@ -133,6 +154,15 @@ export function generateNegatorsForEdges(
     for (const region of regionIdsForBoardPoint(regions, target.position)) {
       addRemovable(`hex:${index}`, region)
     }
+  })
+  sentinelTargets.forEach((target, index) => {
+    addRemovable(`sentinel:${index}`, regions.get(`${target.cellX},${target.cellY}`))
+  })
+  spinnerTargets.forEach((target, index) => {
+    addRemovable(`spinner:${index}`, regions.get(`${target.cellX},${target.cellY}`))
+  })
+  ghostTargets.forEach((target, index) => {
+    addRemovable(`ghost:${index}`, regions.get(`${target.cellX},${target.cellY}`))
   })
   if (allRemovableKeys.size === 0) return null
 
@@ -151,7 +181,7 @@ export function generateNegatorsForEdges(
   const wantsTwo =
     availableCells.length >= 2 &&
     allRemovableKeys.size >= 2 &&
-    rng() < 0.2
+    rng() < 0.05
   const targetCount = wantsTwo ? 2 : 1
 
   const palette = starsActive
@@ -184,13 +214,26 @@ export function generateNegatorsForEdges(
     if (targetCount === 1) {
       return canAssignDistinctRemovals([availableCells[0]]) ? [availableCells[0]] : null
     }
-    const pairCandidates: Array<Array<{ x: number; y: number }>> = []
+    const differentRegionPairs: Array<Array<{ x: number; y: number }>> = []
+    const sameRegionPairs: Array<Array<{ x: number; y: number }>> = []
     for (let i = 0; i < availableCells.length; i += 1) {
       for (let j = i + 1; j < availableCells.length; j += 1) {
-        pairCandidates.push([availableCells[i], availableCells[j]])
+        const first = availableCells[i]
+        const second = availableCells[j]
+        const firstRegion = regions.get(`${first.x},${first.y}`)
+        const secondRegion = regions.get(`${second.x},${second.y}`)
+        if (firstRegion !== undefined && secondRegion !== undefined && firstRegion !== secondRegion) {
+          differentRegionPairs.push([first, second])
+        } else {
+          sameRegionPairs.push([first, second])
+        }
       }
     }
-    for (const pair of shuffle(pairCandidates, rng)) {
+    const prioritizedPairs = [
+      ...shuffle(differentRegionPairs, rng),
+      ...shuffle(sameRegionPairs, rng),
+    ]
+    for (const pair of prioritizedPairs) {
       if (canAssignDistinctRemovals(pair)) return pair
     }
     return null

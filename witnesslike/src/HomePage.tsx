@@ -6,11 +6,17 @@ export type TileKind =
   | 'color-squares'
   | 'stars'
   | 'arrows'
+  | 'chevrons'
   | 'minesweeper-numbers'
   | 'water-droplet'
   | 'cardinal'
+  | 'spinner'
   | 'triangles'
+  | 'dots'
+  | 'diamonds'
+  | 'ghost'
   | 'negator'
+  | 'sentinel'
   | 'polyomino'
   | 'rotated-polyomino'
   | 'negative-polyomino'
@@ -51,17 +57,17 @@ function SymbolTile({ kind, variant = 'grid' }: { kind: TileKind; variant?: 'gri
     return (
       <svg viewBox="0 0 100 100" aria-hidden="true">
         <rect
-          x={isSelectedVariant ? 8 : 12}
+          x={12}
           y="42"
-          width={isSelectedVariant ? 24 : 32}
+          width={isSelectedVariant ? 30 : 32}
           height="16"
           rx="0"
           className={isSelectedVariant ? 'tile-gap-block' : 'tile-stroke'}
         />
         <rect
-          x={isSelectedVariant ? 68 : 56}
+          x={isSelectedVariant ? 58 : 56}
           y="42"
-          width={isSelectedVariant ? 24 : 32}
+          width={isSelectedVariant ? 30 : 32}
           height="16"
           rx="0"
           className={isSelectedVariant ? 'tile-gap-block' : 'tile-stroke'}
@@ -127,6 +133,16 @@ function SymbolTile({ kind, variant = 'grid' }: { kind: TileKind; variant?: 'gri
     )
   }
 
+  if (kind === 'chevrons') {
+    return (
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <polygon className="tile-chevron" points="0,33 20,33 35,50 20,67 00,67 15,50" />
+        <polygon className="tile-chevron" points="32,33 52,33 67,50 52,67 32,67 45,50" />
+        <polygon className="tile-chevron" points="64,33 84,33 99,50 84,67 64,67 79,50" />
+      </svg>
+    )
+  }
+
   if (kind === 'polyomino') {
     return (
       <svg viewBox="0 0 100 100" aria-hidden="true">
@@ -143,6 +159,39 @@ function SymbolTile({ kind, variant = 'grid' }: { kind: TileKind; variant?: 'gri
         <polygon points="-10,72 10,36 30,72" className="tile-triangle" />
         <polygon points="32,72 52,36 72,72" className="tile-triangle" />
         <polygon points="74,72 94,36 114,72" className="tile-triangle" />
+      </svg>
+    )
+  }
+
+  if (kind === 'dots') {
+    return (
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <circle className="tile-dot" cx="31" cy="31" r="17" />
+        <circle className="tile-dot" cx="69" cy="31" r="17" />
+        <circle className="tile-dot" cx="31" cy="69" r="17" />
+        <circle className="tile-dot" cx="69" cy="69" r="17" />
+      </svg>
+    )
+  }
+
+  if (kind === 'diamonds') {
+    return (
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <polygon className="tile-diamond" points="26,26 48,48 26,70 4,48" />
+        <polygon className="tile-diamond" points="74,26 96,48 74,70 52,48" />
+      </svg>
+    )
+  }
+
+  if (kind === 'ghost') {
+    return (
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <path
+          className="tile-ghost-body"
+          d="M 16 80 L 24 34 C 28 20 38 12 50 12 C 62 12 72 20 76 34 L 84 80 L 68 72 L 58 84 L 50 74 L 42 84 L 32 72 Z"
+        />
+        <circle className="tile-ghost-eye" cx="37" cy="45" r="5.3" />
+        <circle className="tile-ghost-eye" cx="63" cy="45" r="5.3" />
       </svg>
     )
   }
@@ -242,6 +291,35 @@ function SymbolTile({ kind, variant = 'grid' }: { kind: TileKind; variant?: 'gri
     )
   }
 
+  if (kind === 'sentinel') {
+    return (
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <path className="tile-sentinel-arc" d="M 18 66 A 32 32 0 0 1 82 66" />
+        <path className="tile-sentinel-core" d="M 39 66 A 11 11 0 0 1 61 66 Z" />
+      </svg>
+    )
+  }
+
+  if (kind === 'spinner') {
+    const spinnerScale = variant === 'selected' ? 1.2 : 1.14
+    return (
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <g transform={`translate(50 50) scale(${spinnerScale}) translate(-50 -50)`}>
+          <circle
+            className="tile-spinner-ring"
+            cx="50"
+            cy="50"
+            r="28"
+            pathLength="100"
+            strokeDasharray="86 14"
+            transform="rotate(-10 50 50)"
+          />
+          <polygon className="tile-spinner-head" points="62.8,22.6 69.1,30.7 59.6,29.3" />
+        </g>
+      </svg>
+    )
+  }
+
   if (kind === 'negator') {
     return (
       <svg viewBox="0 0 100 100" aria-hidden="true">
@@ -313,10 +391,16 @@ function HomePage({ tiles, selectedIds, onToggle, onStart }: HomePageProps) {
     selectedKinds.has('color-squares') ||
     selectedKinds.has('stars') ||
     selectedKinds.has('arrows') ||
+    selectedKinds.has('chevrons') ||
     selectedKinds.has('minesweeper-numbers') ||
     selectedKinds.has('water-droplet') ||
     selectedKinds.has('cardinal') ||
+    selectedKinds.has('spinner') ||
+    selectedKinds.has('sentinel') ||
+    selectedKinds.has('ghost') ||
     selectedKinds.has('triangles') ||
+    selectedKinds.has('dots') ||
+    selectedKinds.has('diamonds') ||
     selectedKinds.has('polyomino') ||
     selectedKinds.has('rotated-polyomino') ||
     selectedKinds.has('negative-polyomino') ||

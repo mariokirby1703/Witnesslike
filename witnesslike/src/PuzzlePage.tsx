@@ -17,6 +17,8 @@ import {
   listAllEdges,
   mulberry32,
   neighbors,
+  pathSignature,
+  regionCountForPath,
   shapeBounds,
   shuffle,
   starPoints,
@@ -25,6 +27,7 @@ import {
   type EliminatedSymbolRef,
   evaluatePathConstraints,
   findAnyValidSolutionPath,
+  findSimplestValidSolutionPath,
 } from './puzzleSolver'
 import type { ArrowTarget } from './symbols/arrows'
 import { arrowDirectionAngle, generateArrowsForEdges } from './symbols/arrows'
@@ -33,14 +36,26 @@ import { generateColorSquaresForEdges } from './symbols/colorSquares'
 import type { CardinalTarget } from './symbols/cardinal'
 import { generateCardinalsForEdges } from './symbols/cardinal'
 import type { HexTarget } from './symbols/hexagon'
-import { generateHexTargets } from './symbols/hexagon'
+import { buildFullGridHexPath, generateHexTargets, shouldUseFullGridHex } from './symbols/hexagon'
 import type { NegatorTarget } from './symbols/negator'
 import { generateNegatorsForEdges } from './symbols/negator'
+import type { DotTarget } from './symbols/dots'
+import { generateDotsForEdges } from './symbols/dots'
+import type { DiamondTarget } from './symbols/diamonds'
+import { generateDiamondsForEdges } from './symbols/diamonds'
+import type { GhostTarget } from './symbols/ghost'
+import { generateGhostsForEdges } from './symbols/ghost'
+import type { ChevronTarget } from './symbols/chevrons'
+import { chevronDirectionAngle, generateChevronsForEdges } from './symbols/chevrons'
 import type { MinesweeperNumberTarget } from './symbols/minesweeperNumbers'
 import {
   generateMinesweeperNumbersForEdges,
   minesweeperDigitPixels,
 } from './symbols/minesweeperNumbers'
+import type { SentinelTarget } from './symbols/sentinel'
+import { generateSentinelsForEdges, sentinelDirectionAngle } from './symbols/sentinel'
+import type { SpinnerTarget } from './symbols/spinner'
+import { generateSpinnersForEdges, spinnerDirectionScaleX } from './symbols/spinner'
 import type { StarTarget } from './symbols/stars'
 import { generateStarsForEdges } from './symbols/stars'
 import type { TriangleTarget } from './symbols/triangles'
@@ -81,6 +96,11 @@ const GENERATION_RECOVERY_SOLVER_VISIT_BUDGET = 6000
 const MAX_PENDING_RECOVERY_CANDIDATES = 5
 const AUTO_SOLVE_BASE_DURATION_MS = 320
 const AUTO_SOLVE_MS_PER_EDGE = 34
+const TOTAL_GRID_EDGE_COUNT = listAllEdges().length
+const RECENT_PATH_SIGNATURE_LIMIT = 40
+const RECENT_PATH_SIGNATURE_AVOID_WINDOW = 18
+const GENERATED_PUZZLE_KEY_HISTORY_LIMIT = 140
+const REPEAT_TRACE_RELAX_LAST_ATTEMPTS = 14
 const END_CAP_POINT: Point = {
   x: END.x + END_CAP_LENGTH * Math.SQRT1_2,
   y: END.y - END_CAP_LENGTH * Math.SQRT1_2,
@@ -93,9 +113,15 @@ type Eliminations = {
   colorSquares: number[]
   stars: number[]
   triangles: number[]
+  dots: number[]
+  diamonds: number[]
+  chevrons: number[]
   minesweeper: number[]
   waterDroplets: number[]
   cardinals: number[]
+  spinners: number[]
+  sentinels: number[]
+  ghosts: number[]
   polyominoes: number[]
   hexagons: number[]
 }
@@ -107,9 +133,15 @@ function emptyEliminations(): Eliminations {
     colorSquares: [],
     stars: [],
     triangles: [],
+    dots: [],
+    diamonds: [],
+    chevrons: [],
     minesweeper: [],
     waterDroplets: [],
     cardinals: [],
+    spinners: [],
+    sentinels: [],
+    ghosts: [],
     polyominoes: [],
     hexagons: [],
   }
@@ -126,9 +158,15 @@ function mapEliminations(
     if (symbol.kind === 'color-square') mapped.colorSquares.push(symbol.index)
     if (symbol.kind === 'star') mapped.stars.push(symbol.index)
     if (symbol.kind === 'triangle') mapped.triangles.push(symbol.index)
+    if (symbol.kind === 'dot') mapped.dots.push(symbol.index)
+    if (symbol.kind === 'diamond') mapped.diamonds.push(symbol.index)
+    if (symbol.kind === 'chevron') mapped.chevrons.push(symbol.index)
     if (symbol.kind === 'minesweeper') mapped.minesweeper.push(symbol.index)
     if (symbol.kind === 'water-droplet') mapped.waterDroplets.push(symbol.index)
     if (symbol.kind === 'cardinal') mapped.cardinals.push(symbol.index)
+    if (symbol.kind === 'spinner') mapped.spinners.push(symbol.index)
+    if (symbol.kind === 'sentinel') mapped.sentinels.push(symbol.index)
+    if (symbol.kind === 'ghost') mapped.ghosts.push(symbol.index)
     if (symbol.kind === 'polyomino') mapped.polyominoes.push(symbol.index)
     if (symbol.kind === 'hexagon') mapped.hexagons.push(symbol.index)
   }
@@ -147,16 +185,109 @@ function generatePuzzle(seed: number): Puzzle {
   return { edges: fallbackEdges }
 }
 
-function pickActiveKinds(kinds: TileKind[], rng: () => number) {
-  if (kinds.length <= 1) return kinds
-  const active = kinds.filter(() => rng() < 0.6)
-  if (active.length >= 2) return active
-  return shuffle(kinds, rng).slice(0, 2)
+function generatePuzzleKeepingPath(seed: number, requiredPath: Point[]): Puzzle {
+  const requiredEdges = edgesFromPath(requiredPath)
+  const allEdgeKeys = listAllEdges().map((edge) => edge.key)
+  const removableEdgeKeys = allEdgeKeys.filter((key) => !requiredEdges.has(key))
+  if (removableEdgeKeys.length === 0) {
+    return { edges: buildFullEdges() }
+  }
+
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const rng = mulberry32(seed + attempt * 97)
+    const edges = buildFullEdges()
+    const gapRatio = 0.12 + rng() * 0.12
+    const gapCount = Math.min(
+      removableEdgeKeys.length,
+      Math.floor(allEdgeKeys.length * gapRatio)
+    )
+    const shuffledRemovable = shuffle(removableEdgeKeys, rng)
+    for (let i = 0; i < gapCount; i += 1) {
+      edges.delete(shuffledRemovable[i])
+    }
+    if (hasPath(edges)) {
+      return { edges }
+    }
+  }
+
+  return { edges: buildFullEdges() }
 }
 
 function trianglePoints(centerX: number, centerY: number, size: number) {
   const halfWidth = size * 0.9
   return `${centerX},${centerY - size} ${centerX - halfWidth},${centerY + size * 0.72} ${centerX + halfWidth},${centerY + size * 0.72}`
+}
+
+function diamondPoints(centerX: number, centerY: number, radius: number) {
+  return `${centerX},${centerY - radius} ${centerX + radius},${centerY} ${centerX},${centerY + radius} ${centerX - radius},${centerY}`
+}
+
+function chevronPoints(centerX: number, centerY: number, size: number) {
+  const halfHeight = size * 1.05
+  const tailX = centerX - size * 0.95
+  const shoulderX = centerX + size * 0.12
+  const tipX = centerX + size - 0.01
+  const notchX = centerX - size * 0.25
+  return `${tailX},${centerY - halfHeight} ${shoulderX},${centerY - halfHeight} ${tipX},${centerY} ${shoulderX},${centerY + halfHeight} ${tailX},${centerY + halfHeight} ${notchX},${centerY}`
+}
+
+function countPathTurns(path: Point[]) {
+  if (path.length < 3) return 0
+  let turns = 0
+  let prevDx = path[1].x - path[0].x
+  let prevDy = path[1].y - path[0].y
+  for (let i = 2; i < path.length; i += 1) {
+    const dx = path[i].x - path[i - 1].x
+    const dy = path[i].y - path[i - 1].y
+    if (dx !== prevDx || dy !== prevDy) {
+      turns += 1
+    }
+    prevDx = dx
+    prevDy = dy
+  }
+  return turns
+}
+
+function longestPathStraightRun(path: Point[]) {
+  if (path.length < 2) return 0
+  let longest = 1
+  let currentRun = 1
+  let prevDx = path[1].x - path[0].x
+  let prevDy = path[1].y - path[0].y
+  for (let i = 2; i < path.length; i += 1) {
+    const dx = path[i].x - path[i - 1].x
+    const dy = path[i].y - path[i - 1].y
+    if (dx === prevDx && dy === prevDy) {
+      currentRun += 1
+    } else {
+      if (currentRun > longest) longest = currentRun
+      currentRun = 1
+      prevDx = dx
+      prevDy = dy
+    }
+  }
+  if (currentRun > longest) longest = currentRun
+  return longest
+}
+
+function meetsWildnessTarget(path: Point[], activeKinds: TileKind[]) {
+  const activeSymbolCount = activeKinds.filter((kind) => kind !== 'gap-line').length
+  const turns = countPathTurns(path)
+  const longestRun = longestPathStraightRun(path)
+  const length = path.length
+
+  if (activeSymbolCount >= 4) {
+    const moderatelyWild = turns >= 7 && longestRun <= 8 && length >= 12
+    const altBalanced = turns >= 6 && longestRun <= 7 && length >= 13
+    return moderatelyWild || altBalanced
+  }
+  if (activeSymbolCount === 3) {
+    return turns >= 7 && longestRun <= 7 && length >= 12
+  }
+  if (activeSymbolCount === 2) {
+    return turns >= 5 && longestRun <= 8 && length >= 10
+  }
+  return turns >= 3 && length >= 8
 }
 
 function colorWithAlpha(color: string, alpha: number) {
@@ -179,6 +310,48 @@ function colorWithAlpha(color: string, alpha: number) {
   return color
 }
 
+function colorLuminance(color: string) {
+  const value = color.trim()
+  const shortHexMatch = /^#([0-9a-fA-F]{3})$/.exec(value)
+  if (shortHexMatch) {
+    const [r, g, b] = shortHexMatch[1].split('').map((digit) => parseInt(digit + digit, 16))
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+  }
+
+  const hexMatch = /^#([0-9a-fA-F]{6})$/.exec(value)
+  if (hexMatch) {
+    const raw = hexMatch[1]
+    const r = parseInt(raw.slice(0, 2), 16)
+    const g = parseInt(raw.slice(2, 4), 16)
+    const b = parseInt(raw.slice(4, 6), 16)
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+  }
+
+  return null
+}
+
+function ghostEyeColor(ghostColor: string) {
+  const luminance = colorLuminance(ghostColor)
+  if (luminance !== null && luminance < 0.36) return '#f6f7fb'
+  return '#101318'
+}
+
+function waterDropletAccentColors(dropletColor: string) {
+  const luminance = colorLuminance(dropletColor)
+  if (luminance !== null && luminance > 0.82) {
+    return {
+      rim: 'rgba(16, 28, 43, 0.42)',
+      gloss: 'rgba(16, 28, 43, 0.26)',
+      bubble: 'rgba(16, 28, 43, 0.18)',
+    }
+  }
+  return {
+    rim: colorWithAlpha(dropletColor, 0.56),
+    gloss: 'rgba(243, 252, 255, 0.36)',
+    bubble: 'rgba(243, 252, 255, 0.24)',
+  }
+}
+
 function symbolGlowFilter(color: string) {
   const nearGlow = colorWithAlpha(color, 0.2)
   const farGlow = colorWithAlpha(color, 0.1)
@@ -194,9 +367,15 @@ function countSymbolColors(
   colorSquares: ColorSquare[],
   starTargets: StarTarget[],
   triangleTargets: TriangleTarget[],
+  dotTargets: DotTarget[],
+  diamondTargets: DiamondTarget[],
+  chevronTargets: ChevronTarget[],
   minesweeperTargets: MinesweeperNumberTarget[],
   waterDropletTargets: WaterDropletTarget[],
   cardinalTargets: CardinalTarget[],
+  spinnerTargets: SpinnerTarget[],
+  sentinelTargets: SentinelTarget[],
+  ghostTargets: GhostTarget[],
   polyominoSymbols: PolyominoSymbol[],
   negatorTargets: NegatorTarget[],
   includeNegatorColors = true
@@ -206,14 +385,78 @@ function countSymbolColors(
   for (const square of colorSquares) colors.add(square.color)
   for (const star of starTargets) colors.add(star.color)
   for (const triangle of triangleTargets) colors.add(triangle.color)
+  for (const dot of dotTargets) colors.add(dot.color)
+  for (const diamond of diamondTargets) colors.add(diamond.color)
+  for (const chevron of chevronTargets) colors.add(chevron.color)
   for (const mine of minesweeperTargets) colors.add(mine.color)
   for (const droplet of waterDropletTargets) colors.add(droplet.color)
   for (const cardinal of cardinalTargets) colors.add(cardinal.color)
+  for (const spinner of spinnerTargets) colors.add(spinner.color)
+  for (const sentinel of sentinelTargets) colors.add(sentinel.color)
+  for (const ghost of ghostTargets) colors.add(ghost.color)
   for (const symbol of polyominoSymbols) colors.add(symbol.color)
   if (includeNegatorColors) {
     for (const negator of negatorTargets) colors.add(negator.color)
   }
   return colors.size
+}
+
+type GeneratedSymbolSnapshot = {
+  edges: Set<string>
+  arrowTargets: ArrowTarget[]
+  colorSquares: ColorSquare[]
+  starTargets: StarTarget[]
+  triangleTargets: TriangleTarget[]
+  dotTargets: DotTarget[]
+  diamondTargets: DiamondTarget[]
+  chevronTargets: ChevronTarget[]
+  minesweeperTargets: MinesweeperNumberTarget[]
+  waterDropletTargets: WaterDropletTarget[]
+  cardinalTargets: CardinalTarget[]
+  spinnerTargets: SpinnerTarget[]
+  sentinelTargets: SentinelTarget[]
+  ghostTargets: GhostTarget[]
+  polyominoSymbols: PolyominoSymbol[]
+  negatorTargets: NegatorTarget[]
+  hexTargets: HexTarget[]
+}
+
+function hasGeneratedSymbolForKind(kind: TileKind, snapshot: GeneratedSymbolSnapshot) {
+  if (kind === 'gap-line') return snapshot.edges.size < TOTAL_GRID_EDGE_COUNT
+  if (kind === 'hexagon') return snapshot.hexTargets.length > 0
+  if (kind === 'color-squares') return snapshot.colorSquares.length > 0
+  if (kind === 'stars') return snapshot.starTargets.length > 0
+  if (kind === 'arrows') return snapshot.arrowTargets.length > 0
+  if (kind === 'dots') return snapshot.dotTargets.length > 0
+  if (kind === 'diamonds') return snapshot.diamondTargets.length > 0
+  if (kind === 'chevrons') return snapshot.chevronTargets.length > 0
+  if (kind === 'minesweeper-numbers') return snapshot.minesweeperTargets.length > 0
+  if (kind === 'water-droplet') return snapshot.waterDropletTargets.length > 0
+  if (kind === 'cardinal') return snapshot.cardinalTargets.length > 0
+  if (kind === 'spinner') return snapshot.spinnerTargets.length > 0
+  if (kind === 'sentinel') return snapshot.sentinelTargets.length > 0
+  if (kind === 'ghost') return snapshot.ghostTargets.length > 0
+  if (kind === 'triangles') return snapshot.triangleTargets.length > 0
+  if (kind === 'negator') return snapshot.negatorTargets.length > 0
+  if (kind === 'polyomino') {
+    return snapshot.polyominoSymbols.some((symbol) => !symbol.negative && !symbol.rotatable)
+  }
+  if (kind === 'rotated-polyomino') {
+    return snapshot.polyominoSymbols.some((symbol) => !symbol.negative && symbol.rotatable)
+  }
+  if (kind === 'negative-polyomino') {
+    return snapshot.polyominoSymbols.some((symbol) => symbol.negative && !symbol.rotatable)
+  }
+  if (kind === 'rotated-negative-polyomino') {
+    return snapshot.polyominoSymbols.some((symbol) => symbol.negative && symbol.rotatable)
+  }
+  return false
+}
+
+function isPathTraceRecentlyUsed(path: Point[], recentPathSignatures: ReadonlySet<string>) {
+  if (recentPathSignatures.size === 0) return false
+  const signature = pathSignature(path)
+  return signature.length > 0 && recentPathSignatures.has(signature)
 }
 
 function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
@@ -232,11 +475,14 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
   const boardRef = useRef<SVGSVGElement | null>(null)
   const pathPolylineRef = useRef<SVGPolylineElement | null>(null)
   const solveTraceAnimationRef = useRef<number | null>(null)
+  const recentSolutionSignaturesRef = useRef<string[]>([])
+  const generatedPuzzleKeysRef = useRef<string[]>([])
 
   const selectedKinds = useMemo<TileKind[]>(
     () => selectedTiles.map((tile) => tile.kind).filter((kind) => kind !== 'placeholder'),
     [selectedTiles]
   )
+  const selectedKindsKey = selectedKinds.join('|') || 'gap-line'
 
   const allEdges = useMemo(() => listAllEdges(), [])
 
@@ -247,29 +493,20 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
     colorSquares,
     starTargets,
     triangleTargets,
+    dotTargets,
+    diamondTargets,
+    chevronTargets,
     minesweeperTargets,
     waterDropletTargets,
     cardinalTargets,
+    spinnerTargets,
+    sentinelTargets,
+    ghostTargets,
     polyominoSymbols,
     negatorTargets,
     hexTargets,
     solutionPath,
   } = useMemo(() => {
-    type GeneratedCandidate = {
-      puzzle: Puzzle
-      activeKinds: TileKind[]
-      arrowTargets: ArrowTarget[]
-      colorSquares: ColorSquare[]
-      starTargets: StarTarget[]
-      triangleTargets: TriangleTarget[]
-      minesweeperTargets: MinesweeperNumberTarget[]
-      waterDropletTargets: WaterDropletTarget[]
-      cardinalTargets: CardinalTarget[]
-      polyominoSymbols: PolyominoSymbol[]
-      negatorTargets: NegatorTarget[]
-      hexTargets: HexTarget[]
-      solutionPath: Point[]
-    }
     type PendingCandidate = {
       puzzle: Puzzle
       activeKinds: TileKind[]
@@ -277,9 +514,15 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       colorSquares: ColorSquare[]
       starTargets: StarTarget[]
       triangleTargets: TriangleTarget[]
+      dotTargets: DotTarget[]
+      diamondTargets: DiamondTarget[]
+      chevronTargets: ChevronTarget[]
       minesweeperTargets: MinesweeperNumberTarget[]
       waterDropletTargets: WaterDropletTarget[]
       cardinalTargets: CardinalTarget[]
+      spinnerTargets: SpinnerTarget[]
+      sentinelTargets: SentinelTarget[]
+      ghostTargets: GhostTarget[]
       polyominoSymbols: PolyominoSymbol[]
       negatorTargets: NegatorTarget[]
       hexTargets: HexTarget[]
@@ -287,6 +530,12 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       score: number
     }
     const baseKinds = selectedKinds.length > 0 ? selectedKinds : (['gap-line'] as TileKind[])
+    const generationKey = `${seed}:${selectedKindsKey}`
+    const isReplayGeneration = generatedPuzzleKeysRef.current.includes(generationKey)
+    const recentPathSignatures = isReplayGeneration
+      ? []
+      : recentSolutionSignaturesRef.current.slice(0, RECENT_PATH_SIGNATURE_AVOID_WINDOW)
+    const recentPathSignatureSet = new Set(recentPathSignatures)
     const minActive = baseKinds.length >= 2 ? 2 : 1
     const hasRequestedSymbols = baseKinds.some((kind) => kind !== 'gap-line')
     const hasHeavyKinds =
@@ -301,61 +550,66 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
     ])
     const isPolyOnlySelection =
       baseKinds.length > 0 && baseKinds.every((kind) => kind === 'gap-line' || polyKinds.has(kind))
-    const wantsPositiveMixSelection =
-      baseKinds.includes('polyomino') && baseKinds.includes('rotated-polyomino')
-    const wantsNegativeMixSelection =
-      baseKinds.includes('negative-polyomino') && baseKinds.includes('rotated-negative-polyomino')
+    const selectedSymbolCount = baseKinds.filter((kind) => kind !== 'gap-line').length
     const generationAttempts = isPolyOnlySelection
       ? hasHeavyKinds
-        ? 30
-        : 24
-      : hasHeavyKinds
-        ? 52
-        : 40
-    const maxPendingCandidates = isPolyOnlySelection ? 3 : MAX_PENDING_RECOVERY_CANDIDATES
+        ? 140
+        : 110
+      : selectedSymbolCount >= 4
+        ? hasHeavyKinds
+          ? 260
+          : 210
+        : selectedSymbolCount === 3
+          ? hasHeavyKinds
+            ? 200
+            : 160
+          : hasHeavyKinds
+            ? 140
+            : 110
+    const maxPendingCandidates = Math.max(
+      isPolyOnlySelection ? 6 : MAX_PENDING_RECOVERY_CANDIDATES,
+      selectedSymbolCount >= 4 ? 12 : selectedSymbolCount === 3 ? 10 : 8
+    )
     const mustIncludeRotatedPolyomino =
       baseKinds.includes('polyomino') && baseKinds.includes('rotated-polyomino')
-    let bestRelaxedCandidate: GeneratedCandidate | null = null
-    let bestRelaxedScore = Number.NEGATIVE_INFINITY
     const pendingCandidates: PendingCandidate[] = []
-    for (let attempt = 0; attempt < generationAttempts; attempt += 1) {
+    attemptLoop: for (let attempt = 0; attempt < generationAttempts; attempt += 1) {
       const rng = mulberry32(seed + attempt * 313 + 11)
-      const mustKeepAllSymbols =
-        baseKinds.length >= 3 || wantsPositiveMixSelection || wantsNegativeMixSelection
-      let active: TileKind[]
+      const active: TileKind[] = [...baseKinds]
 
-      if (baseKinds.length >= 2) {
-        const strictAttempts = mustKeepAllSymbols
-          ? Math.min(18, 8 + baseKinds.length * 2)
-          : 18
-        if (attempt < strictAttempts) {
-          active = [...baseKinds]
-        } else if (attempt < strictAttempts + 14) {
-          active = shuffle(baseKinds, rng).slice(0, baseKinds.length - 1)
-        } else {
-          active = pickActiveKinds(baseKinds, rng)
-        }
-      } else {
-        active = [...baseKinds]
+      if (
+        (active.includes('negative-polyomino') || active.includes('rotated-negative-polyomino')) &&
+        !active.includes('polyomino') &&
+        !active.includes('rotated-polyomino')
+      ) {
+        continue attemptLoop
       }
 
-      if (!active.includes('polyomino') && !active.includes('rotated-polyomino')) {
-        active = active.filter(
-          (kind) => kind !== 'negative-polyomino' && kind !== 'rotated-negative-polyomino'
-        )
-      }
+      const hexSeed = seed + attempt * 7
+      const shouldForceFullGridHex = active.includes('hexagon') && shouldUseFullGridHex(hexSeed)
+      const forcedFullGridHexPath = shouldForceFullGridHex
+        ? buildFullGridHexPath(seed + attempt * 11839 + 17)
+        : null
 
       let edges = active.includes('gap-line')
-        ? generatePuzzle(seed + attempt * 131).edges
+        ? shouldForceFullGridHex && forcedFullGridHexPath
+          ? generatePuzzleKeepingPath(seed + attempt * 131, forcedFullGridHexPath).edges
+          : generatePuzzle(seed + attempt * 131).edges
         : buildFullEdges()
 
       let arrowTargets: ArrowTarget[] = []
       let colorSquares: ColorSquare[] = []
       let starTargets: StarTarget[] = []
       let triangleTargets: TriangleTarget[] = []
+      let dotTargets: DotTarget[] = []
+      let diamondTargets: DiamondTarget[] = []
+      let chevronTargets: ChevronTarget[] = []
       let minesweeperTargets: MinesweeperNumberTarget[] = []
       let waterDropletTargets: WaterDropletTarget[] = []
       let cardinalTargets: CardinalTarget[] = []
+      let spinnerTargets: SpinnerTarget[] = []
+      let sentinelTargets: SentinelTarget[] = []
+      let ghostTargets: GhostTarget[] = []
       let polyominoSymbols: PolyominoSymbol[] = []
       let negatorTargets: NegatorTarget[] = []
       const hasNegativePolyKindsInAttempt =
@@ -364,13 +618,57 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         active.includes('polyomino') ||
         active.includes('rotated-polyomino') ||
         hasNegativePolyKindsInAttempt
-      const attemptPathSeed = hasNegativePolyKindsInAttempt
-        ? findBestLoopyPathByRegions(edges, rng, 14, 8) ?? findRandomPath(edges, rng)
-        : hasAnyPolyKindsInAttempt
-          ? findBestLoopyPathByRegions(edges, rng, 14, 8) ?? findRandomPath(edges, rng)
-          : findBestLoopyPathByRegions(edges, rng, hasHeavyKinds ? 26 : 18, 8) ??
-            findRandomPath(edges, rng)
+      const activeSymbolCount = active.filter((kind) => kind !== 'gap-line').length
+      const baseWildAttempts =
+        activeSymbolCount >= 4
+          ? hasHeavyKinds
+            ? 82
+            : 66
+          : activeSymbolCount === 3
+            ? hasHeavyKinds
+              ? 74
+              : 58
+            : activeSymbolCount === 2
+              ? hasHeavyKinds
+                ? 54
+                : 42
+              : hasHeavyKinds
+                ? 40
+                : 32
+      const baseWildMinLength =
+        activeSymbolCount >= 4
+          ? 12
+          : activeSymbolCount === 3
+            ? 12
+            : activeSymbolCount === 2
+              ? 10
+              : 9
+      const loopyAttempts = hasAnyPolyKindsInAttempt
+        ? Math.max(22, Math.floor(baseWildAttempts * 0.8))
+        : baseWildAttempts
+      const loopyMinLength = hasAnyPolyKindsInAttempt
+        ? Math.max(9, baseWildMinLength - 1)
+        : baseWildMinLength
+      const attemptPathSeed = shouldForceFullGridHex && forcedFullGridHexPath
+        ? forcedFullGridHexPath
+        : findBestLoopyPathByRegions(
+            edges,
+            rng,
+            loopyAttempts,
+            loopyMinLength,
+            recentPathSignatureSet
+          ) ??
+          findRandomPath(edges, rng)
       let solutionPath: Point[] | null = attemptPathSeed
+      if (active.includes('ghost')) {
+        if (!solutionPath) {
+          continue attemptLoop
+        }
+        const ghostRegionCount = regionCountForPath(solutionPath)
+        if (ghostRegionCount < 2 || ghostRegionCount > 5) {
+          continue attemptLoop
+        }
+      }
 
       if (active.includes('color-squares')) {
         const colorSquarePool = active.includes('stars')
@@ -390,28 +688,41 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           solutionPath ?? undefined
         )
 
-        if (!colorResult && active.includes('gap-line')) {
-          const fullEdges = buildFullEdges()
-          const retry = generateColorSquaresForEdges(
-            fullEdges,
-            seed + attempt * 2001 + 99,
-            desiredColorCount,
-            baseKinds.length,
-            colorSquarePool,
-            solutionPath ?? undefined
-          )
-          if (retry) {
-            edges = fullEdges
-            colorResult = retry
-            active = active.filter((kind) => kind !== 'gap-line')
-          }
-        }
-
         if (colorResult) {
           colorSquares = colorResult.squares
-          solutionPath = colorResult.solutionPath
+          solutionPath = shouldForceFullGridHex
+            ? solutionPath ?? colorResult.solutionPath
+            : colorResult.solutionPath
         } else {
-          active = active.filter((kind) => kind !== 'color-squares')
+          continue attemptLoop
+        }
+      }
+
+      if (active.includes('ghost')) {
+        const blockedGhostCells = new Set<string>([
+          ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
+        ])
+        const preferredGhostColors = active.includes('stars')
+          ? Array.from(
+              new Set([
+                ...colorSquares.map((square) => square.color),
+              ])
+            ).slice(0, MAX_SYMBOL_COLORS)
+          : undefined
+        const ghostResult = generateGhostsForEdges(
+          edges,
+          seed + attempt * 30967,
+          blockedGhostCells,
+          active.includes('stars'),
+          baseKinds.length,
+          preferredGhostColors,
+          solutionPath ?? undefined
+        )
+        if (ghostResult) {
+          ghostTargets = ghostResult.targets
+          solutionPath = ghostResult.solutionPath
+        } else {
+          continue attemptLoop
         }
       }
 
@@ -421,7 +732,10 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         active.includes('negative-polyomino') ||
         active.includes('rotated-negative-polyomino')
       ) {
-        const baseUsedCells = new Set<string>(colorSquares.map((square) => `${square.cellX},${square.cellY}`))
+        const baseUsedCells = new Set<string>([
+          ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
+          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
+        ])
         let usedPolyCells = new Set(baseUsedCells)
         const polyPalette = buildPolyominoPalette(
           rng,
@@ -452,7 +766,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             fixedSlotsLeftRaw - reserveForRotated - reservedPositiveSlotsForNegative
           )
           if (fixedSlotsLeft <= 0) {
-            active = active.filter((kind) => kind !== 'polyomino')
+            continue attemptLoop
           }
           let usedForFixed = new Set(usedPolyCells)
           let polyResult =
@@ -469,29 +783,6 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
                 )
               : null
 
-          if (!polyResult && active.includes('gap-line')) {
-            const fullEdges = buildFullEdges()
-            usedForFixed = new Set(usedPolyCells)
-            const retry =
-              fixedSlotsLeft > 0
-                ? generatePolyominoesForEdges(
-                    fullEdges,
-                    seed + attempt * 9107 + 31,
-                    minRegions,
-                    usedForFixed,
-                    polyPalette,
-                    fixedSlotsLeft,
-                    solutionPath ?? undefined,
-                    occupiedPositiveRegionIds
-                  )
-                : null
-            if (retry) {
-              edges = fullEdges
-              polyResult = retry
-              active = active.filter((kind) => kind !== 'gap-line')
-            }
-          }
-
           if (polyResult) {
             polyominoSymbols = [...polyominoSymbols, ...polyResult.symbols]
             usedPolyCells = usedForFixed
@@ -500,7 +791,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             }
             solutionPath = solutionPath ?? polyResult.solutionPath
           } else {
-            active = active.filter((kind) => kind !== 'polyomino')
+            continue attemptLoop
           }
         }
 
@@ -511,7 +802,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             MAX_POLYOMINO_SYMBOLS - currentPositiveCount - reservedPositiveSlotsForNegative
           )
           if (rotatedSlotsLeft <= 0) {
-            active = active.filter((kind) => kind !== 'rotated-polyomino')
+            continue attemptLoop
           }
           let usedForRotated = new Set(usedPolyCells)
           let rotatedResult =
@@ -528,29 +819,6 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
                 )
               : null
 
-          if (!rotatedResult && active.includes('gap-line')) {
-            const fullEdges = buildFullEdges()
-            usedForRotated = new Set(usedPolyCells)
-            const retry =
-              rotatedSlotsLeft > 0
-                ? generateRotatedPolyominoesForEdges(
-                    fullEdges,
-                    seed + attempt * 12121 + 31,
-                    minRegions,
-                    usedForRotated,
-                    polyPalette,
-                    rotatedSlotsLeft,
-                    solutionPath ?? undefined,
-                    occupiedPositiveRegionIds
-                  )
-                : null
-            if (retry) {
-              edges = fullEdges
-              rotatedResult = retry
-              active = active.filter((kind) => kind !== 'gap-line')
-            }
-          }
-
           if (rotatedResult) {
             polyominoSymbols = [...polyominoSymbols, ...rotatedResult.symbols]
             usedPolyCells = usedForRotated
@@ -559,7 +827,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             }
             solutionPath = solutionPath ?? rotatedResult.solutionPath
           } else {
-            active = active.filter((kind) => kind !== 'rotated-polyomino')
+            continue attemptLoop
           }
         }
 
@@ -567,14 +835,14 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           mustIncludeRotatedPolyomino &&
           !polyominoSymbols.some((symbol) => !symbol.negative && symbol.rotatable)
         ) {
-          active = active.filter((kind) => kind !== 'rotated-polyomino')
+          continue attemptLoop
         }
         if (
           baseKinds.includes('polyomino') &&
           baseKinds.includes('rotated-polyomino') &&
           !polyominoSymbols.some((symbol) => !symbol.negative && !symbol.rotatable)
         ) {
-          active = active.filter((kind) => kind !== 'polyomino')
+          continue attemptLoop
         }
 
         if (
@@ -643,9 +911,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           }
 
           if (remainingPositiveSlots <= 0 || remainingNegativeSlots <= 0) {
-            active = active.filter(
-              (kind) => kind !== 'negative-polyomino' && kind !== 'rotated-negative-polyomino'
-            )
+            continue attemptLoop
           } else {
             if (includeFixedNegative && includeRotatedNegative) {
               if (remainingPositiveSlots > 0 && remainingNegativeSlots > 0) {
@@ -688,10 +954,10 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             }
 
             if (includeFixedNegative && !placedAnyFixedNegative) {
-              active = active.filter((kind) => kind !== 'negative-polyomino')
+              continue attemptLoop
             }
             if (includeRotatedNegative && !placedAnyRotatedNegative) {
-              active = active.filter((kind) => kind !== 'rotated-negative-polyomino')
+              continue attemptLoop
             }
           }
         }
@@ -700,11 +966,13 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       if (active.includes('triangles')) {
         const blockedTriangleCells = new Set<string>([
           ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
+          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
           ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
         ])
         const preferredTriangleColors = active.includes('stars')
           ? Array.from(new Set([
               ...colorSquares.map((square) => square.color),
+              ...ghostTargets.map((target) => target.color),
               ...polyominoSymbols.map((symbol) => symbol.color),
             ])).slice(0, MAX_SYMBOL_COLORS)
           : undefined
@@ -721,7 +989,73 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           triangleTargets = triangleResult.triangles
           solutionPath = solutionPath ?? triangleResult.solutionPath
         } else {
-          active = active.filter((kind) => kind !== 'triangles')
+          continue attemptLoop
+        }
+      }
+
+      if (active.includes('dots')) {
+        const blockedDotCells = new Set<string>([
+          ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
+          ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
+        ])
+        const preferredDotColors = active.includes('stars')
+          ? Array.from(new Set([
+              ...colorSquares.map((square) => square.color),
+              ...triangleTargets.map((triangle) => triangle.color),
+              ...ghostTargets.map((target) => target.color),
+              ...polyominoSymbols.map((symbol) => symbol.color),
+            ])).slice(0, MAX_SYMBOL_COLORS)
+          : undefined
+        const dotResult = generateDotsForEdges(
+          edges,
+          seed + attempt * 24137,
+          baseKinds.length,
+          blockedDotCells,
+          active.includes('stars'),
+          preferredDotColors,
+          solutionPath ?? undefined
+        )
+        if (dotResult) {
+          dotTargets = dotResult.targets
+          solutionPath = solutionPath ?? dotResult.solutionPath
+        } else {
+          continue attemptLoop
+        }
+      }
+
+      if (active.includes('diamonds')) {
+        const blockedDiamondCells = new Set<string>([
+          ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
+          ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+          ...dotTargets.map((dot) => `${dot.cellX},${dot.cellY}`),
+          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
+        ])
+        const preferredDiamondColors = active.includes('stars')
+          ? Array.from(new Set([
+              ...colorSquares.map((square) => square.color),
+              ...triangleTargets.map((triangle) => triangle.color),
+              ...dotTargets.map((dot) => dot.color),
+              ...ghostTargets.map((target) => target.color),
+              ...polyominoSymbols.map((symbol) => symbol.color),
+            ])).slice(0, MAX_SYMBOL_COLORS)
+          : undefined
+        const diamondResult = generateDiamondsForEdges(
+          edges,
+          seed + attempt * 24361,
+          baseKinds.length,
+          blockedDiamondCells,
+          active.includes('stars'),
+          preferredDiamondColors,
+          solutionPath ?? undefined
+        )
+        if (diamondResult) {
+          diamondTargets = diamondResult.targets
+          solutionPath = solutionPath ?? diamondResult.solutionPath
+        } else {
+          continue attemptLoop
         }
       }
 
@@ -729,12 +1063,18 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const blockedArrowCells = new Set<string>([
           ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
           ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+          ...dotTargets.map((dot) => `${dot.cellX},${dot.cellY}`),
+          ...diamondTargets.map((diamond) => `${diamond.cellX},${diamond.cellY}`),
+          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
           ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
         ])
         const preferredArrowColors = active.includes('stars')
           ? Array.from(new Set([
               ...colorSquares.map((square) => square.color),
               ...triangleTargets.map((triangle) => triangle.color),
+              ...dotTargets.map((dot) => dot.color),
+              ...diamondTargets.map((diamond) => diamond.color),
+              ...ghostTargets.map((target) => target.color),
               ...polyominoSymbols.map((symbol) => symbol.color),
             ])).slice(0, MAX_SYMBOL_COLORS)
           : undefined
@@ -751,7 +1091,45 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           arrowTargets = arrowResult.arrows
           solutionPath = solutionPath ?? arrowResult.solutionPath
         } else {
-          active = active.filter((kind) => kind !== 'arrows')
+          continue attemptLoop
+        }
+      }
+
+      if (active.includes('chevrons')) {
+        const blockedChevronCells = new Set<string>([
+          ...arrowTargets.map((arrow) => `${arrow.cellX},${arrow.cellY}`),
+          ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
+          ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+          ...dotTargets.map((dot) => `${dot.cellX},${dot.cellY}`),
+          ...diamondTargets.map((diamond) => `${diamond.cellX},${diamond.cellY}`),
+          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
+        ])
+        const preferredChevronColors = active.includes('stars')
+          ? Array.from(new Set([
+              ...arrowTargets.map((arrow) => arrow.color),
+              ...colorSquares.map((square) => square.color),
+              ...triangleTargets.map((triangle) => triangle.color),
+              ...dotTargets.map((dot) => dot.color),
+              ...diamondTargets.map((diamond) => diamond.color),
+              ...ghostTargets.map((target) => target.color),
+              ...polyominoSymbols.map((symbol) => symbol.color),
+            ])).slice(0, MAX_SYMBOL_COLORS)
+          : undefined
+        const chevronResult = generateChevronsForEdges(
+          edges,
+          seed + attempt * 26699,
+          baseKinds.length,
+          blockedChevronCells,
+          active.includes('stars'),
+          preferredChevronColors,
+          solutionPath ?? undefined
+        )
+        if (chevronResult) {
+          chevronTargets = chevronResult.targets
+          solutionPath = solutionPath ?? chevronResult.solutionPath
+        } else {
+          continue attemptLoop
         }
       }
 
@@ -761,6 +1139,10 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
           ...starTargets.map((star) => `${star.cellX},${star.cellY}`),
           ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+          ...dotTargets.map((dot) => `${dot.cellX},${dot.cellY}`),
+          ...diamondTargets.map((diamond) => `${diamond.cellX},${diamond.cellY}`),
+          ...chevronTargets.map((chevron) => `${chevron.cellX},${chevron.cellY}`),
+          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
           ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
         ])
         const preferredMinesweeperColors = active.includes('stars')
@@ -768,6 +1150,10 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
               ...arrowTargets.map((arrow) => arrow.color),
               ...colorSquares.map((square) => square.color),
               ...triangleTargets.map((triangle) => triangle.color),
+              ...dotTargets.map((dot) => dot.color),
+              ...diamondTargets.map((diamond) => diamond.color),
+              ...chevronTargets.map((chevron) => chevron.color),
+              ...ghostTargets.map((target) => target.color),
               ...polyominoSymbols.map((symbol) => symbol.color),
             ])).slice(0, MAX_SYMBOL_COLORS)
           : undefined
@@ -784,7 +1170,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           minesweeperTargets = minesweeperResult.targets
           solutionPath = solutionPath ?? minesweeperResult.solutionPath
         } else {
-          active = active.filter((kind) => kind !== 'minesweeper-numbers')
+          continue attemptLoop
         }
       }
 
@@ -794,7 +1180,11 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
           ...cardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
           ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+          ...dotTargets.map((dot) => `${dot.cellX},${dot.cellY}`),
+          ...diamondTargets.map((diamond) => `${diamond.cellX},${diamond.cellY}`),
+          ...chevronTargets.map((chevron) => `${chevron.cellX},${chevron.cellY}`),
           ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
           ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
         ])
         const preferredWaterColors = active.includes('stars')
@@ -803,14 +1193,18 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
               ...colorSquares.map((square) => square.color),
               ...cardinalTargets.map((target) => target.color),
               ...triangleTargets.map((triangle) => triangle.color),
+              ...dotTargets.map((dot) => dot.color),
+              ...diamondTargets.map((diamond) => diamond.color),
+              ...chevronTargets.map((chevron) => chevron.color),
               ...minesweeperTargets.map((target) => target.color),
+              ...ghostTargets.map((target) => target.color),
               ...polyominoSymbols.map((symbol) => symbol.color),
             ])).slice(0, MAX_SYMBOL_COLORS)
           : undefined
         const waterResult = generateWaterDropletsForEdges(
           edges,
           seed + attempt * 30259,
-          baseKinds.length,
+          selectedSymbolCount,
           blockedWaterCells,
           active.includes('stars'),
           preferredWaterColors,
@@ -820,7 +1214,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           waterDropletTargets = waterResult.targets
           solutionPath = solutionPath ?? waterResult.solutionPath
         } else {
-          active = active.filter((kind) => kind !== 'water-droplet')
+          continue attemptLoop
         }
       }
 
@@ -829,8 +1223,12 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           ...arrowTargets.map((arrow) => `${arrow.cellX},${arrow.cellY}`),
           ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
           ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+          ...dotTargets.map((dot) => `${dot.cellX},${dot.cellY}`),
+          ...diamondTargets.map((diamond) => `${diamond.cellX},${diamond.cellY}`),
+          ...chevronTargets.map((chevron) => `${chevron.cellX},${chevron.cellY}`),
           ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
           ...waterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
           ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
         ])
         const preferredCardinalColors = active.includes('stars')
@@ -838,8 +1236,12 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
               ...arrowTargets.map((arrow) => arrow.color),
               ...colorSquares.map((square) => square.color),
               ...triangleTargets.map((triangle) => triangle.color),
+              ...dotTargets.map((dot) => dot.color),
+              ...diamondTargets.map((diamond) => diamond.color),
+              ...chevronTargets.map((chevron) => chevron.color),
               ...minesweeperTargets.map((target) => target.color),
               ...waterDropletTargets.map((target) => target.color),
+              ...ghostTargets.map((target) => target.color),
               ...polyominoSymbols.map((symbol) => symbol.color),
             ])).slice(0, MAX_SYMBOL_COLORS)
           : undefined
@@ -856,7 +1258,56 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           cardinalTargets = cardinalResult.targets
           solutionPath = solutionPath ?? cardinalResult.solutionPath
         } else {
-          active = active.filter((kind) => kind !== 'cardinal')
+          continue attemptLoop
+        }
+      }
+
+      if (active.includes('spinner')) {
+        const blockedSpinnerCells = new Set<string>([
+          ...arrowTargets.map((arrow) => `${arrow.cellX},${arrow.cellY}`),
+          ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
+          ...starTargets.map((star) => `${star.cellX},${star.cellY}`),
+          ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+          ...dotTargets.map((dot) => `${dot.cellX},${dot.cellY}`),
+          ...diamondTargets.map((diamond) => `${diamond.cellX},${diamond.cellY}`),
+          ...chevronTargets.map((chevron) => `${chevron.cellX},${chevron.cellY}`),
+          ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...waterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...cardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...sentinelTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
+        ])
+        const preferredSpinnerColors = active.includes('stars')
+          ? Array.from(new Set([
+              ...arrowTargets.map((arrow) => arrow.color),
+              ...colorSquares.map((square) => square.color),
+              ...triangleTargets.map((triangle) => triangle.color),
+              ...dotTargets.map((dot) => dot.color),
+              ...diamondTargets.map((diamond) => diamond.color),
+              ...chevronTargets.map((chevron) => chevron.color),
+              ...minesweeperTargets.map((target) => target.color),
+              ...waterDropletTargets.map((target) => target.color),
+              ...cardinalTargets.map((target) => target.color),
+              ...ghostTargets.map((target) => target.color),
+              ...sentinelTargets.map((target) => target.color),
+              ...polyominoSymbols.map((symbol) => symbol.color),
+            ])).slice(0, MAX_SYMBOL_COLORS)
+          : undefined
+        const spinnerResult = generateSpinnersForEdges(
+          edges,
+          seed + attempt * 30773,
+          baseKinds.length,
+          blockedSpinnerCells,
+          active.includes('stars'),
+          preferredSpinnerColors,
+          solutionPath ?? undefined
+        )
+        if (spinnerResult) {
+          spinnerTargets = spinnerResult.targets
+          solutionPath = solutionPath ?? spinnerResult.solutionPath
+        } else {
+          continue attemptLoop
         }
       }
 
@@ -880,9 +1331,14 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             ? polyominoSymbols
             : [],
           active.includes('triangles') ? triangleTargets : [],
+          active.includes('dots') ? dotTargets : [],
+          active.includes('diamonds') ? diamondTargets : [],
+          active.includes('chevrons') ? chevronTargets : [],
           active.includes('minesweeper-numbers') ? minesweeperTargets : [],
           active.includes('water-droplet') ? waterDropletTargets : [],
           active.includes('cardinal') ? cardinalTargets : [],
+          active.includes('spinner') ? spinnerTargets : [],
+          active.includes('ghost') ? ghostTargets : [],
           active.includes('negator'),
           solutionPath ?? undefined,
           baseKinds.length
@@ -891,13 +1347,82 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           starTargets = starResult.stars
           solutionPath = solutionPath ?? starResult.solutionPath
         } else {
-          active = active.filter((kind) => kind !== 'stars')
+          continue attemptLoop
         }
       }
 
       let hexTargets: HexTarget[] = []
       if (active.includes('hexagon')) {
-        hexTargets = generateHexTargets(edges, seed + attempt * 7, solutionPath ?? undefined)
+        hexTargets = generateHexTargets(edges, hexSeed, solutionPath ?? undefined, {
+          forceFullGrid: shouldForceFullGridHex,
+        })
+      }
+
+      if (active.includes('sentinel')) {
+        const blockedSentinelCells = new Set<string>([
+          ...arrowTargets.map((arrow) => `${arrow.cellX},${arrow.cellY}`),
+          ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
+          ...starTargets.map((star) => `${star.cellX},${star.cellY}`),
+          ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+          ...dotTargets.map((dot) => `${dot.cellX},${dot.cellY}`),
+          ...diamondTargets.map((diamond) => `${diamond.cellX},${diamond.cellY}`),
+          ...chevronTargets.map((chevron) => `${chevron.cellX},${chevron.cellY}`),
+          ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...waterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...cardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...spinnerTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
+        ])
+        const preferredSentinelColors = active.includes('stars')
+          ? Array.from(new Set([
+              ...arrowTargets.map((arrow) => arrow.color),
+              ...colorSquares.map((square) => square.color),
+              ...starTargets.map((star) => star.color),
+              ...triangleTargets.map((triangle) => triangle.color),
+              ...dotTargets.map((dot) => dot.color),
+              ...diamondTargets.map((diamond) => diamond.color),
+              ...chevronTargets.map((chevron) => chevron.color),
+              ...minesweeperTargets.map((target) => target.color),
+              ...waterDropletTargets.map((target) => target.color),
+              ...cardinalTargets.map((target) => target.color),
+              ...spinnerTargets.map((target) => target.color),
+              ...ghostTargets.map((target) => target.color),
+              ...polyominoSymbols.map((symbol) => symbol.color),
+            ])).slice(0, MAX_SYMBOL_COLORS)
+          : undefined
+        const sentinelResult = generateSentinelsForEdges(
+          edges,
+          seed + attempt * 31033,
+          baseKinds.length,
+          blockedSentinelCells,
+          active.includes('stars'),
+          {
+            arrowTargets,
+            colorSquares,
+            starTargets,
+            triangleTargets,
+            dotTargets,
+            diamondTargets,
+            chevronTargets,
+            minesweeperTargets,
+            waterDropletTargets,
+            cardinalTargets,
+            spinnerTargets,
+            ghostTargets,
+            polyominoSymbols,
+            negatorTargets,
+            hexTargets,
+          },
+          preferredSentinelColors,
+          solutionPath ?? undefined
+        )
+        if (sentinelResult) {
+          sentinelTargets = sentinelResult.targets
+          solutionPath = solutionPath ?? sentinelResult.solutionPath
+        } else {
+          continue attemptLoop
+        }
       }
 
       if (active.includes('negator')) {
@@ -906,13 +1431,19 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           colorSquares.length +
           starTargets.length +
           triangleTargets.length +
+          dotTargets.length +
+          diamondTargets.length +
+          chevronTargets.length +
           minesweeperTargets.length +
           waterDropletTargets.length +
           cardinalTargets.length +
+          spinnerTargets.length +
+          sentinelTargets.length +
+          ghostTargets.length +
           polyominoSymbols.length +
           hexTargets.length
         if (removableSymbolCount === 0) {
-          active = active.filter((kind) => kind !== 'negator')
+          continue attemptLoop
         }
         if (active.includes('negator')) {
           const usedNegatorCells = new Set<string>([
@@ -920,9 +1451,15 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
             ...starTargets.map((star) => `${star.cellX},${star.cellY}`),
             ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+            ...dotTargets.map((dot) => `${dot.cellX},${dot.cellY}`),
+            ...diamondTargets.map((diamond) => `${diamond.cellX},${diamond.cellY}`),
+            ...chevronTargets.map((chevron) => `${chevron.cellX},${chevron.cellY}`),
             ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
             ...waterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
             ...cardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
+            ...spinnerTargets.map((target) => `${target.cellX},${target.cellY}`),
+            ...sentinelTargets.map((target) => `${target.cellX},${target.cellY}`),
+            ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
             ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
           ])
           const preferredNegatorColors = active.includes('stars')
@@ -931,9 +1468,15 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
                 ...colorSquares.map((square) => square.color),
                 ...starTargets.map((star) => star.color),
                 ...triangleTargets.map((triangle) => triangle.color),
+                ...dotTargets.map((dot) => dot.color),
+                ...diamondTargets.map((diamond) => diamond.color),
+                ...chevronTargets.map((chevron) => chevron.color),
                 ...minesweeperTargets.map((target) => target.color),
                 ...waterDropletTargets.map((target) => target.color),
                 ...cardinalTargets.map((target) => target.color),
+                ...spinnerTargets.map((target) => target.color),
+                ...sentinelTargets.map((target) => target.color),
+                ...ghostTargets.map((target) => target.color),
                 ...polyominoSymbols.map((symbol) => symbol.color),
               ])).slice(0, MAX_SYMBOL_COLORS)
             : []
@@ -945,11 +1488,17 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             colorSquares,
             starTargets,
             triangleTargets,
+            dotTargets,
+            diamondTargets,
+            chevronTargets,
             minesweeperTargets,
             waterDropletTargets,
             cardinalTargets,
             polyominoSymbols,
             hexTargets,
+            sentinelTargets,
+            spinnerTargets,
+            ghostTargets,
             active.includes('stars'),
             preferredNegatorColors,
             solutionPath ?? undefined
@@ -958,9 +1507,32 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             negatorTargets = negatorResult.negators
             solutionPath = solutionPath ?? negatorResult.solutionPath
           } else {
-            active = active.filter((kind) => kind !== 'negator')
+            continue attemptLoop
           }
         }
+      }
+
+      const generatedSnapshot: GeneratedSymbolSnapshot = {
+        edges,
+        arrowTargets,
+        colorSquares,
+        starTargets,
+        triangleTargets,
+        dotTargets,
+        diamondTargets,
+        chevronTargets,
+        minesweeperTargets,
+        waterDropletTargets,
+        cardinalTargets,
+        spinnerTargets,
+        sentinelTargets,
+        ghostTargets,
+        polyominoSymbols,
+        negatorTargets,
+        hexTargets,
+      }
+      if (!active.every((kind) => hasGeneratedSymbolForKind(kind, generatedSnapshot))) {
+        continue attemptLoop
       }
 
       if (
@@ -970,19 +1542,21 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           colorSquares,
           starTargets,
           triangleTargets,
+          dotTargets,
+          diamondTargets,
+          chevronTargets,
           minesweeperTargets,
           waterDropletTargets,
           cardinalTargets,
+          spinnerTargets,
+          sentinelTargets,
+          ghostTargets,
           polyominoSymbols,
           negatorTargets,
           true
         ) > MAX_SYMBOL_COLORS
       ) {
         continue
-      }
-
-      if (mustKeepAllSymbols && baseKinds.some((kind) => !active.includes(kind))) {
-        // Keep searching for a full match, but still evaluate this attempt as a relaxed fallback.
       }
 
       if (active.length < minActive) continue
@@ -992,9 +1566,15 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         colorSquares.length +
         starTargets.length +
         triangleTargets.length +
+        dotTargets.length +
+        diamondTargets.length +
+        chevronTargets.length +
         minesweeperTargets.length +
         waterDropletTargets.length +
         cardinalTargets.length +
+        spinnerTargets.length +
+        sentinelTargets.length +
+        ghostTargets.length +
         polyominoSymbols.length +
         negatorTargets.length +
         hexTargets.length
@@ -1024,9 +1604,15 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             colorSquares,
             starTargets,
             triangleTargets,
+            dotTargets,
+            diamondTargets,
+            chevronTargets,
             minesweeperTargets,
             waterDropletTargets,
             cardinalTargets,
+            spinnerTargets,
+            sentinelTargets,
+            ghostTargets,
             polyominoSymbols,
             negatorTargets,
             hexTargets,
@@ -1062,9 +1648,15 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
               colorSquares,
               starTargets,
               triangleTargets,
+              dotTargets,
+              diamondTargets,
+              chevronTargets,
               minesweeperTargets,
               waterDropletTargets,
               cardinalTargets,
+              spinnerTargets,
+              sentinelTargets,
+              ghostTargets,
               polyominoSymbols,
               negatorTargets,
               hexTargets,
@@ -1080,6 +1672,18 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           }
         }
       }
+      if (validatedPath && !meetsWildnessTarget(validatedPath, active)) {
+        validatedPath = null
+      }
+      const nearEndRepeatRelaxation = attempt >= generationAttempts - REPEAT_TRACE_RELAX_LAST_ATTEMPTS
+      if (
+        validatedPath &&
+        !isReplayGeneration &&
+        isPathTraceRecentlyUsed(validatedPath, recentPathSignatureSet) &&
+        !nearEndRepeatRelaxation
+      ) {
+        continue attemptLoop
+      }
       if (!validatedPath) {
         pendingCandidates.push({
           puzzle: { edges },
@@ -1088,9 +1692,15 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           colorSquares,
           starTargets,
           triangleTargets,
+          dotTargets,
+          diamondTargets,
+          chevronTargets,
           minesweeperTargets,
           waterDropletTargets,
           cardinalTargets,
+          spinnerTargets,
+          sentinelTargets,
+          ghostTargets,
           polyominoSymbols,
           negatorTargets,
           hexTargets,
@@ -1111,31 +1721,26 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         colorSquares,
         starTargets,
         triangleTargets,
+        dotTargets,
+        diamondTargets,
+        chevronTargets,
         minesweeperTargets,
         waterDropletTargets,
         cardinalTargets,
+        spinnerTargets,
+        sentinelTargets,
+        ghostTargets,
         polyominoSymbols,
         negatorTargets,
         hexTargets,
         solutionPath: validatedPath,
       }
-
-      const keepsAllRequestedKinds = !baseKinds.some((kind) => !active.includes(kind))
-      if (!mustKeepAllSymbols || keepsAllRequestedKinds) {
-        return candidate
-      }
-
-      const score = coveredKindCount * 100 + symbolCount * 10 + uniquePolyShapeCount * 4 + validatedPath.length
-      if (score > bestRelaxedScore) {
-        bestRelaxedScore = score
-        bestRelaxedCandidate = candidate
-      }
+      return candidate
     }
 
-    if (bestRelaxedCandidate) return bestRelaxedCandidate
-
     if (pendingCandidates.length > 0) {
-      for (const pending of pendingCandidates) {
+      for (let pendingIndex = 0; pendingIndex < pendingCandidates.length; pendingIndex += 1) {
+        const pending = pendingCandidates[pendingIndex]
         let recoveredPath: Point[] | null = null
         if (pending.solutionPathHint && pending.solutionPathHint.length >= 2) {
           const usedEdgesForHint = edgesFromPath(pending.solutionPathHint)
@@ -1148,9 +1753,15 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
               colorSquares: pending.colorSquares,
               starTargets: pending.starTargets,
               triangleTargets: pending.triangleTargets,
+              dotTargets: pending.dotTargets,
+              diamondTargets: pending.diamondTargets,
+              chevronTargets: pending.chevronTargets,
               minesweeperTargets: pending.minesweeperTargets,
               waterDropletTargets: pending.waterDropletTargets,
               cardinalTargets: pending.cardinalTargets,
+              spinnerTargets: pending.spinnerTargets,
+              sentinelTargets: pending.sentinelTargets,
+              ghostTargets: pending.ghostTargets,
               polyominoSymbols: pending.polyominoSymbols,
               negatorTargets: pending.negatorTargets,
               hexTargets: pending.hexTargets,
@@ -1181,15 +1792,34 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
               colorSquares: pending.colorSquares,
               starTargets: pending.starTargets,
               triangleTargets: pending.triangleTargets,
+              dotTargets: pending.dotTargets,
+              diamondTargets: pending.diamondTargets,
+              chevronTargets: pending.chevronTargets,
               minesweeperTargets: pending.minesweeperTargets,
               waterDropletTargets: pending.waterDropletTargets,
               cardinalTargets: pending.cardinalTargets,
+              spinnerTargets: pending.spinnerTargets,
+              sentinelTargets: pending.sentinelTargets,
+              ghostTargets: pending.ghostTargets,
               polyominoSymbols: pending.polyominoSymbols,
               negatorTargets: pending.negatorTargets,
               hexTargets: pending.hexTargets,
             },
             pendingIsPolyOnly ? 4500 : GENERATION_RECOVERY_SOLVER_VISIT_BUDGET
           )
+        }
+
+        if (recoveredPath && !meetsWildnessTarget(recoveredPath, pending.activeKinds)) {
+          recoveredPath = null
+        }
+        const allowRepeatOnRecovery = pendingIndex >= pendingCandidates.length - 2
+        if (
+          recoveredPath &&
+          !isReplayGeneration &&
+          isPathTraceRecentlyUsed(recoveredPath, recentPathSignatureSet) &&
+          !allowRepeatOnRecovery
+        ) {
+          recoveredPath = null
         }
 
         if (recoveredPath) {
@@ -1200,9 +1830,15 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             colorSquares: pending.colorSquares,
             starTargets: pending.starTargets,
             triangleTargets: pending.triangleTargets,
+            dotTargets: pending.dotTargets,
+            diamondTargets: pending.diamondTargets,
+            chevronTargets: pending.chevronTargets,
             minesweeperTargets: pending.minesweeperTargets,
             waterDropletTargets: pending.waterDropletTargets,
             cardinalTargets: pending.cardinalTargets,
+            spinnerTargets: pending.spinnerTargets,
+            sentinelTargets: pending.sentinelTargets,
+            ghostTargets: pending.ghostTargets,
             polyominoSymbols: pending.polyominoSymbols,
             negatorTargets: pending.negatorTargets,
             hexTargets: pending.hexTargets,
@@ -1210,423 +1846,175 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           }
         }
       }
-    }
 
-    const requestedPolyKinds = new Set<TileKind>([
-      'polyomino',
-      'rotated-polyomino',
-      'negative-polyomino',
-      'rotated-negative-polyomino',
-    ])
-    const wantsPolyFallback = baseKinds.some((kind) => requestedPolyKinds.has(kind))
-    if (wantsPolyFallback) {
-      for (let fallbackAttempt = 0; fallbackAttempt < 6; fallbackAttempt += 1) {
-        const polyFallbackEdges = baseKinds.includes('gap-line')
-          ? generatePuzzle(seed + 4049 + fallbackAttempt * 977).edges
-          : buildFullEdges()
-        const polyFallbackRng = mulberry32(seed + 54013 + fallbackAttempt * 1493)
-        const polyFallbackPalette = buildPolyominoPalette(polyFallbackRng, [], false)
-        const polyFallbackUsedCells = new Set<string>()
-        const polyFallbackOccupiedPositiveRegionIds = new Set<number>()
-        let polyFallbackSymbols: PolyominoSymbol[] = []
-        const polyFallbackPathSeed =
-          findBestLoopyPathByRegions(polyFallbackEdges, polyFallbackRng, 10, 8) ??
-          findRandomPath(polyFallbackEdges, polyFallbackRng)
-        let polyFallbackPath: Point[] | null = polyFallbackPathSeed
-        const fallbackMinRegions = 1
-        const fallbackNegativeKindCount =
-          (baseKinds.includes('negative-polyomino') ? 1 : 0) +
-          (baseKinds.includes('rotated-negative-polyomino') ? 1 : 0)
-        const fallbackReservedPositiveSlots =
-          fallbackNegativeKindCount === 0 ? 0 : fallbackNegativeKindCount === 2 ? 2 : 1
-        const fallbackPositiveCap = Math.max(1, MAX_POLYOMINO_SYMBOLS - fallbackReservedPositiveSlots)
-
-        if (baseKinds.includes('polyomino')) {
-          const fixedFallback = generatePolyominoesForEdges(
-            polyFallbackEdges,
-            seed + 9107 + fallbackAttempt * 701,
-            fallbackMinRegions,
-            polyFallbackUsedCells,
-            polyFallbackPalette,
-            fallbackPositiveCap,
-            polyFallbackPath ?? undefined,
-            polyFallbackOccupiedPositiveRegionIds
-          )
-          if (fixedFallback) {
-            polyFallbackSymbols = [...polyFallbackSymbols, ...fixedFallback.symbols]
-            for (const regionId of fixedFallback.usedRegionIds) {
-              polyFallbackOccupiedPositiveRegionIds.add(regionId)
-            }
-            polyFallbackPath = polyFallbackPath ?? fixedFallback.solutionPath
-          }
-        }
-
-        if (baseKinds.includes('rotated-polyomino')) {
-          const currentPositiveCount = polyFallbackSymbols.filter((symbol) => !symbol.negative).length
-          const rotatedSlots = Math.max(0, fallbackPositiveCap - currentPositiveCount)
-          if (rotatedSlots > 0) {
-            const rotatedFallback = generateRotatedPolyominoesForEdges(
-              polyFallbackEdges,
-              seed + 12121 + fallbackAttempt * 907,
-              fallbackMinRegions,
-              polyFallbackUsedCells,
-              polyFallbackPalette,
-              rotatedSlots,
-              polyFallbackPath ?? undefined,
-              polyFallbackOccupiedPositiveRegionIds
-            )
-            if (rotatedFallback) {
-              polyFallbackSymbols = [...polyFallbackSymbols, ...rotatedFallback.symbols]
-              for (const regionId of rotatedFallback.usedRegionIds) {
-                polyFallbackOccupiedPositiveRegionIds.add(regionId)
-              }
-              polyFallbackPath = polyFallbackPath ?? rotatedFallback.solutionPath
-            }
-          }
-        }
-
+      for (let pendingIndex = 0; pendingIndex < pendingCandidates.length; pendingIndex += 1) {
+        const pending = pendingCandidates[pendingIndex]
+        const hardRecoveredPath = findAnyValidSolutionPath(
+          pending.puzzle.edges,
+          pending.activeKinds,
+          {
+            arrowTargets: pending.arrowTargets,
+            colorSquares: pending.colorSquares,
+            starTargets: pending.starTargets,
+            triangleTargets: pending.triangleTargets,
+            dotTargets: pending.dotTargets,
+            diamondTargets: pending.diamondTargets,
+            chevronTargets: pending.chevronTargets,
+            minesweeperTargets: pending.minesweeperTargets,
+            waterDropletTargets: pending.waterDropletTargets,
+            cardinalTargets: pending.cardinalTargets,
+            spinnerTargets: pending.spinnerTargets,
+            sentinelTargets: pending.sentinelTargets,
+            ghostTargets: pending.ghostTargets,
+            polyominoSymbols: pending.polyominoSymbols,
+            negatorTargets: pending.negatorTargets,
+            hexTargets: pending.hexTargets,
+          },
+          MANUAL_SOLVER_VISIT_BUDGET_FALLBACK
+        )
         if (
-          baseKinds.includes('negative-polyomino') ||
-          baseKinds.includes('rotated-negative-polyomino')
+          hardRecoveredPath &&
+          !isReplayGeneration &&
+          isPathTraceRecentlyUsed(hardRecoveredPath, recentPathSignatureSet) &&
+          pendingIndex < pendingCandidates.length - 1
         ) {
-          let fallbackNegativeSlots = MAX_NEGATIVE_POLYOMINO_SYMBOLS
-          let fallbackPositiveSlots = Math.max(
-            0,
-            MAX_POLYOMINO_SYMBOLS - polyFallbackSymbols.filter((symbol) => !symbol.negative).length
-          )
-          const includeFixedNegativeFallback = baseKinds.includes('negative-polyomino')
-          const includeRotatedNegativeFallback = baseKinds.includes('rotated-negative-polyomino')
-          const pairedPositiveRotatableFallback =
-            baseKinds.includes('rotated-polyomino') && !baseKinds.includes('polyomino')
-
-          const runFallbackNegative = (
-            seedOffset: number,
-            allowRotatedNegative: boolean,
-            requireRotatedNegative: boolean,
-            maxNegativeSymbols: number,
-            maxExtraPositiveSymbols: number
-          ) => {
-            if (maxNegativeSymbols <= 0 || maxExtraPositiveSymbols <= 0) return null
-            return generateNegativePolyominoesForEdges(
-              polyFallbackEdges,
-              seed + 17041 + fallbackAttempt * 1117 + seedOffset,
-              polyFallbackSymbols.filter((symbol) => !symbol.negative),
-              polyFallbackUsedCells,
-              polyFallbackPalette,
-              false,
-              pairedPositiveRotatableFallback,
-              allowRotatedNegative,
-              requireRotatedNegative,
-              maxNegativeSymbols,
-              maxExtraPositiveSymbols,
-              polyFallbackPath ?? undefined
-            )
-          }
-
-          const appendFallbackNegative = (
-            negativeFallback: NonNullable<ReturnType<typeof generateNegativePolyominoesForEdges>>
-          ) => {
-            polyFallbackSymbols = [
-              ...polyFallbackSymbols,
-              ...negativeFallback.pairedPositiveSymbols,
-              ...negativeFallback.negativeSymbols,
-            ]
-            polyFallbackPath = polyFallbackPath ?? negativeFallback.solutionPath
-            fallbackNegativeSlots = Math.max(
-              0,
-              fallbackNegativeSlots - negativeFallback.negativeSymbols.length
-            )
-            fallbackPositiveSlots = Math.max(
-              0,
-              fallbackPositiveSlots - negativeFallback.pairedPositiveSymbols.length
-            )
-          }
-
-          if (fallbackPositiveSlots > 0) {
-            if (includeFixedNegativeFallback && includeRotatedNegativeFallback) {
-              if (fallbackPositiveSlots > 0 && fallbackNegativeSlots > 0) {
-                const fixedMandatory = runFallbackNegative(17, false, false, 1, 1)
-                if (fixedMandatory) appendFallbackNegative(fixedMandatory)
-              }
-              if (fallbackPositiveSlots > 0 && fallbackNegativeSlots > 0) {
-                const rotatedMandatory = runFallbackNegative(181, true, true, 1, 1)
-                if (rotatedMandatory) appendFallbackNegative(rotatedMandatory)
-              }
-              if (fallbackPositiveSlots > 0 && fallbackNegativeSlots > 0) {
-                const extraMixed = runFallbackNegative(
-                  947,
-                  true,
-                  false,
-                  fallbackNegativeSlots,
-                  fallbackPositiveSlots
-                )
-                if (extraMixed) appendFallbackNegative(extraMixed)
-              }
-            } else if (includeFixedNegativeFallback) {
-              const fixedOnly = runFallbackNegative(
-                17,
-                false,
-                false,
-                fallbackNegativeSlots,
-                fallbackPositiveSlots
-              )
-              if (fixedOnly) appendFallbackNegative(fixedOnly)
-            } else if (includeRotatedNegativeFallback) {
-              const rotatedOnly = runFallbackNegative(
-                181,
-                true,
-                true,
-                fallbackNegativeSlots,
-                fallbackPositiveSlots
-              )
-              if (rotatedOnly) appendFallbackNegative(rotatedOnly)
-            }
-          }
+          continue
         }
-
-        if (polyFallbackSymbols.length === 0) continue
-
-        const polyFallbackKinds = new Set<TileKind>()
-        if (baseKinds.includes('gap-line')) polyFallbackKinds.add('gap-line')
-        if (polyFallbackSymbols.some((symbol) => !symbol.negative && !symbol.rotatable)) {
-          polyFallbackKinds.add('polyomino')
-        }
-        if (polyFallbackSymbols.some((symbol) => !symbol.negative && symbol.rotatable)) {
-          polyFallbackKinds.add('rotated-polyomino')
-        }
-        if (polyFallbackSymbols.some((symbol) => symbol.negative && !symbol.rotatable)) {
-          polyFallbackKinds.add('negative-polyomino')
-        }
-        if (polyFallbackSymbols.some((symbol) => symbol.negative && symbol.rotatable)) {
-          polyFallbackKinds.add('rotated-negative-polyomino')
-        }
-        const polyFallbackActiveKinds = Array.from(polyFallbackKinds)
-        let validatedPolyFallbackPath: Point[] | null = null
-        if (polyFallbackPath && polyFallbackPath.length >= 2 && polyFallbackActiveKinds.length > 0) {
-          const usedEdgesForFallbackPath = edgesFromPath(polyFallbackPath)
-          const fallbackEvaluation = evaluatePathConstraints(
-            polyFallbackPath,
-            usedEdgesForFallbackPath,
-            polyFallbackActiveKinds,
-            {
-              arrowTargets: [],
-              colorSquares: [],
-              starTargets: [],
-              triangleTargets: [],
-              minesweeperTargets: [],
-              waterDropletTargets: [],
-              cardinalTargets: [],
-              polyominoSymbols: polyFallbackSymbols,
-              negatorTargets: [],
-              hexTargets: [],
-            },
-            'first'
-          )
-          if (fallbackEvaluation.ok) {
-            validatedPolyFallbackPath = polyFallbackPath
-          }
-        }
-        if (!validatedPolyFallbackPath && polyFallbackActiveKinds.length > 0) {
-          validatedPolyFallbackPath = findAnyValidSolutionPath(
-            polyFallbackEdges,
-            polyFallbackActiveKinds,
-            {
-              arrowTargets: [],
-              colorSquares: [],
-              starTargets: [],
-              triangleTargets: [],
-              minesweeperTargets: [],
-              waterDropletTargets: [],
-              cardinalTargets: [],
-              polyominoSymbols: polyFallbackSymbols,
-              negatorTargets: [],
-              hexTargets: [],
-            },
-            GENERATION_RECOVERY_SOLVER_VISIT_BUDGET
-          )
-        }
-        if (validatedPolyFallbackPath) {
+        if (hardRecoveredPath) {
           return {
-            puzzle: { edges: polyFallbackEdges },
-            activeKinds: polyFallbackActiveKinds,
-            arrowTargets: [],
-            colorSquares: [],
-            starTargets: [],
-            triangleTargets: [],
-            minesweeperTargets: [],
-            waterDropletTargets: [],
-            cardinalTargets: [],
-            polyominoSymbols: polyFallbackSymbols,
-            negatorTargets: [],
-            hexTargets: [],
-            solutionPath: validatedPolyFallbackPath,
+            puzzle: pending.puzzle,
+            activeKinds: pending.activeKinds,
+            arrowTargets: pending.arrowTargets,
+            colorSquares: pending.colorSquares,
+            starTargets: pending.starTargets,
+            triangleTargets: pending.triangleTargets,
+            dotTargets: pending.dotTargets,
+            diamondTargets: pending.diamondTargets,
+            chevronTargets: pending.chevronTargets,
+            minesweeperTargets: pending.minesweeperTargets,
+            waterDropletTargets: pending.waterDropletTargets,
+            cardinalTargets: pending.cardinalTargets,
+            spinnerTargets: pending.spinnerTargets,
+            sentinelTargets: pending.sentinelTargets,
+            ghostTargets: pending.ghostTargets,
+            polyominoSymbols: pending.polyominoSymbols,
+            negatorTargets: pending.negatorTargets,
+            hexTargets: pending.hexTargets,
+            solutionPath: hardRecoveredPath,
           }
+        }
+      }
+
+      const strictEmergencyPending = pendingCandidates[0]
+      let strictEmergencyPath: Point[] | null = null
+      if (
+        strictEmergencyPending.solutionPathHint &&
+        strictEmergencyPending.solutionPathHint.length >= 2
+      ) {
+        const usedEdgesForHint = edgesFromPath(strictEmergencyPending.solutionPathHint)
+        const hintEvaluation = evaluatePathConstraints(
+          strictEmergencyPending.solutionPathHint,
+          usedEdgesForHint,
+          strictEmergencyPending.activeKinds,
+          {
+            arrowTargets: strictEmergencyPending.arrowTargets,
+            colorSquares: strictEmergencyPending.colorSquares,
+            starTargets: strictEmergencyPending.starTargets,
+            triangleTargets: strictEmergencyPending.triangleTargets,
+            dotTargets: strictEmergencyPending.dotTargets,
+            diamondTargets: strictEmergencyPending.diamondTargets,
+            chevronTargets: strictEmergencyPending.chevronTargets,
+            minesweeperTargets: strictEmergencyPending.minesweeperTargets,
+            waterDropletTargets: strictEmergencyPending.waterDropletTargets,
+            cardinalTargets: strictEmergencyPending.cardinalTargets,
+            spinnerTargets: strictEmergencyPending.spinnerTargets,
+            sentinelTargets: strictEmergencyPending.sentinelTargets,
+            ghostTargets: strictEmergencyPending.ghostTargets,
+            polyominoSymbols: strictEmergencyPending.polyominoSymbols,
+            negatorTargets: strictEmergencyPending.negatorTargets,
+            hexTargets: strictEmergencyPending.hexTargets,
+          },
+          'first'
+        )
+        if (hintEvaluation.ok) {
+          strictEmergencyPath = strictEmergencyPending.solutionPathHint
+        }
+      }
+      if (!strictEmergencyPath) {
+        strictEmergencyPath = findAnyValidSolutionPath(
+          strictEmergencyPending.puzzle.edges,
+          strictEmergencyPending.activeKinds,
+          {
+            arrowTargets: strictEmergencyPending.arrowTargets,
+            colorSquares: strictEmergencyPending.colorSquares,
+            starTargets: strictEmergencyPending.starTargets,
+            triangleTargets: strictEmergencyPending.triangleTargets,
+            dotTargets: strictEmergencyPending.dotTargets,
+            diamondTargets: strictEmergencyPending.diamondTargets,
+            chevronTargets: strictEmergencyPending.chevronTargets,
+            minesweeperTargets: strictEmergencyPending.minesweeperTargets,
+            waterDropletTargets: strictEmergencyPending.waterDropletTargets,
+            cardinalTargets: strictEmergencyPending.cardinalTargets,
+            spinnerTargets: strictEmergencyPending.spinnerTargets,
+            sentinelTargets: strictEmergencyPending.sentinelTargets,
+            ghostTargets: strictEmergencyPending.ghostTargets,
+            polyominoSymbols: strictEmergencyPending.polyominoSymbols,
+            negatorTargets: strictEmergencyPending.negatorTargets,
+            hexTargets: strictEmergencyPending.hexTargets,
+          },
+          MANUAL_SOLVER_VISIT_BUDGET_FALLBACK * 2
+        )
+      }
+      if (strictEmergencyPath) {
+        return {
+          puzzle: strictEmergencyPending.puzzle,
+          activeKinds: strictEmergencyPending.activeKinds,
+          arrowTargets: strictEmergencyPending.arrowTargets,
+          colorSquares: strictEmergencyPending.colorSquares,
+          starTargets: strictEmergencyPending.starTargets,
+          triangleTargets: strictEmergencyPending.triangleTargets,
+          dotTargets: strictEmergencyPending.dotTargets,
+          diamondTargets: strictEmergencyPending.diamondTargets,
+          chevronTargets: strictEmergencyPending.chevronTargets,
+          minesweeperTargets: strictEmergencyPending.minesweeperTargets,
+          waterDropletTargets: strictEmergencyPending.waterDropletTargets,
+          cardinalTargets: strictEmergencyPending.cardinalTargets,
+          spinnerTargets: strictEmergencyPending.spinnerTargets,
+          sentinelTargets: strictEmergencyPending.sentinelTargets,
+          ghostTargets: strictEmergencyPending.ghostTargets,
+          polyominoSymbols: strictEmergencyPending.polyominoSymbols,
+          negatorTargets: strictEmergencyPending.negatorTargets,
+          hexTargets: strictEmergencyPending.hexTargets,
+          solutionPath: strictEmergencyPath,
         }
       }
     }
 
-    const fallbackKinds = baseKinds.filter((kind) => kind !== 'negator')
-    let safeFallbackKinds =
-      fallbackKinds.length > 0
-        ? fallbackKinds.slice(0, Math.min(fallbackKinds.length, Math.max(minActive, 1)))
-        : (['gap-line'] as TileKind[])
-    const fallbackEdges = safeFallbackKinds.includes('gap-line')
-      ? generatePuzzle(seed).edges
-      : buildFullEdges()
-    const fallbackPuzzle = { edges: fallbackEdges }
-    let fallbackHexTargets = safeFallbackKinds.includes('hexagon')
-      ? generateHexTargets(fallbackEdges, seed + 7)
-      : []
-    const fallbackRng = mulberry32(seed + 76031)
-    let fallbackSolutionPath: Point[] | null =
-      findBestLoopyPathByRegions(fallbackEdges, fallbackRng, 90, 8) ??
-      findRandomPath(fallbackEdges, fallbackRng)
-    let fallbackCardinalTargets: CardinalTarget[] = []
-    if (safeFallbackKinds.includes('cardinal')) {
-      const blockedCardinalCells = new Set<string>()
-      const preferredCardinalColors = undefined
-      const cardinalFallbackResult = generateCardinalsForEdges(
-        fallbackEdges,
-        seed + 77043,
-        baseKinds.length,
-        blockedCardinalCells,
-        safeFallbackKinds.includes('stars'),
-        preferredCardinalColors,
-        fallbackSolutionPath ?? undefined
-      )
-      if (cardinalFallbackResult) {
-        fallbackCardinalTargets = cardinalFallbackResult.targets
-        fallbackSolutionPath = fallbackSolutionPath ?? cardinalFallbackResult.solutionPath
+    throw new Error('Failed to generate a puzzle containing all selected symbols.')
+
+  }, [seed, selectedKinds, selectedKindsKey])
+
+  useEffect(() => {
+    const key = `${seed}:${selectedKindsKey}`
+    const history = generatedPuzzleKeysRef.current
+    if (!history.includes(key)) {
+      history.push(key)
+      if (history.length > GENERATED_PUZZLE_KEY_HISTORY_LIMIT) {
+        history.splice(0, history.length - GENERATED_PUZZLE_KEY_HISTORY_LIMIT)
       }
     }
-    let fallbackWaterDropletTargets: WaterDropletTarget[] = []
-    if (safeFallbackKinds.includes('water-droplet')) {
-      const blockedWaterCells = new Set<string>([
-        ...fallbackCardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
-      ])
-      const preferredWaterColors = undefined
-      const waterFallbackResult = generateWaterDropletsForEdges(
-        fallbackEdges,
-        seed + 77077,
-        baseKinds.length,
-        blockedWaterCells,
-        safeFallbackKinds.includes('stars'),
-        preferredWaterColors,
-        fallbackSolutionPath ?? undefined
-      )
-      if (waterFallbackResult) {
-        fallbackWaterDropletTargets = waterFallbackResult.targets
-        fallbackSolutionPath = fallbackSolutionPath ?? waterFallbackResult.solutionPath
-      }
+  }, [seed, selectedKindsKey])
+
+  useEffect(() => {
+    const signature = pathSignature(solutionPath)
+    if (!signature) return
+    const recent = recentSolutionSignaturesRef.current
+    const deduped = [signature, ...recent.filter((entry) => entry !== signature)]
+    if (deduped.length > RECENT_PATH_SIGNATURE_LIMIT) {
+      deduped.length = RECENT_PATH_SIGNATURE_LIMIT
     }
-    let fallbackStarTargets: StarTarget[] = []
-    if (safeFallbackKinds.includes('stars')) {
-      const starFallbackResult = generateStarsForEdges(
-        fallbackEdges,
-        seed + 77011,
-        1,
-        [],
-        [],
-        [],
-        [],
-        [],
-        fallbackWaterDropletTargets,
-        fallbackCardinalTargets,
-        false,
-        fallbackSolutionPath ?? undefined,
-        baseKinds.length
-      )
-      if (starFallbackResult) {
-        fallbackStarTargets = starFallbackResult.stars
-        fallbackSolutionPath = fallbackSolutionPath ?? starFallbackResult.solutionPath
-      }
-    }
-    if (
-      hasRequestedSymbols &&
-      fallbackHexTargets.length +
-        fallbackStarTargets.length +
-        fallbackCardinalTargets.length +
-        fallbackWaterDropletTargets.length ===
-        0
-    ) {
-      const emergencyStarResult = generateStarsForEdges(
-        fallbackEdges,
-        seed + 77191,
-        1,
-        [],
-        [],
-        [],
-        [],
-        [],
-        fallbackWaterDropletTargets,
-        fallbackCardinalTargets,
-        false,
-        fallbackSolutionPath ?? undefined,
-        baseKinds.length
-      )
-      if (emergencyStarResult) {
-        fallbackStarTargets = emergencyStarResult.stars
-        fallbackSolutionPath = fallbackSolutionPath ?? emergencyStarResult.solutionPath
-        if (!safeFallbackKinds.includes('stars')) {
-          safeFallbackKinds = [...safeFallbackKinds, 'stars']
-        }
-      } else {
-        fallbackHexTargets = generateHexTargets(fallbackEdges, seed + 70007)
-        if (fallbackHexTargets.length > 0 && !safeFallbackKinds.includes('hexagon')) {
-          safeFallbackKinds = [...safeFallbackKinds, 'hexagon']
-        }
-      }
-    }
-    const fallbackSymbols = {
-      arrowTargets: [],
-      colorSquares: [],
-      starTargets: fallbackStarTargets,
-      triangleTargets: [],
-      minesweeperTargets: [],
-      waterDropletTargets: fallbackWaterDropletTargets,
-      cardinalTargets: fallbackCardinalTargets,
-      polyominoSymbols: [],
-      negatorTargets: [],
-      hexTargets: fallbackHexTargets,
-    }
-    let validatedFallbackPath: Point[] | null = null
-    if (fallbackSolutionPath && fallbackSolutionPath.length >= 2) {
-      const usedEdgesForFallbackSolution = edgesFromPath(fallbackSolutionPath)
-      const fallbackSolutionEvaluation = evaluatePathConstraints(
-        fallbackSolutionPath,
-        usedEdgesForFallbackSolution,
-        safeFallbackKinds,
-        fallbackSymbols,
-        'first'
-      )
-      if (fallbackSolutionEvaluation.ok) {
-        validatedFallbackPath = fallbackSolutionPath
-      }
-    }
-    if (!validatedFallbackPath) {
-      validatedFallbackPath = findAnyValidSolutionPath(
-        fallbackEdges,
-        safeFallbackKinds,
-        fallbackSymbols,
-        GENERATION_RECOVERY_SOLVER_VISIT_BUDGET
-      )
-    }
-    return {
-      puzzle: fallbackPuzzle,
-      activeKinds: safeFallbackKinds,
-      arrowTargets: fallbackSymbols.arrowTargets,
-      colorSquares: fallbackSymbols.colorSquares,
-      starTargets: fallbackSymbols.starTargets,
-      triangleTargets: fallbackSymbols.triangleTargets,
-      minesweeperTargets: fallbackSymbols.minesweeperTargets,
-      waterDropletTargets: fallbackSymbols.waterDropletTargets,
-      cardinalTargets: fallbackSymbols.cardinalTargets,
-      polyominoSymbols: fallbackSymbols.polyominoSymbols,
-      negatorTargets: fallbackSymbols.negatorTargets,
-      hexTargets: fallbackSymbols.hexTargets,
-      solutionPath: validatedFallbackPath,
-    }
-  }, [seed, selectedKinds])
+    recentSolutionSignaturesRef.current = deduped
+  }, [seed, solutionPath])
 
   const gaps = useMemo(
     () => allEdges.filter((edge) => !puzzle.edges.has(edge.key)),
@@ -1675,9 +2063,15 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       colorSquares: [...lastSolved.eliminations.colorSquares],
       stars: [...lastSolved.eliminations.stars],
       triangles: [...lastSolved.eliminations.triangles],
+      dots: [...lastSolved.eliminations.dots],
+      diamonds: [...lastSolved.eliminations.diamonds],
+      chevrons: [...lastSolved.eliminations.chevrons],
       minesweeper: [...lastSolved.eliminations.minesweeper],
       waterDroplets: [...lastSolved.eliminations.waterDroplets],
       cardinals: [...lastSolved.eliminations.cardinals],
+      spinners: [...lastSolved.eliminations.spinners],
+      sentinels: [...lastSolved.eliminations.sentinels],
+      ghosts: [...lastSolved.eliminations.ghosts],
       polyominoes: [...lastSolved.eliminations.polyominoes],
       hexagons: [...lastSolved.eliminations.hexagons],
     })
@@ -1788,9 +2182,15 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       colorSquares,
       starTargets,
       triangleTargets,
+      dotTargets,
+      diamondTargets,
+      chevronTargets,
       minesweeperTargets,
       waterDropletTargets,
       cardinalTargets,
+      spinnerTargets,
+      sentinelTargets,
+      ghostTargets,
       polyominoSymbols,
       negatorTargets,
       hexTargets,
@@ -1819,9 +2219,15 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         colorSquares: [...solvedEliminations.colorSquares],
         stars: [...solvedEliminations.stars],
         triangles: [...solvedEliminations.triangles],
+        dots: [...solvedEliminations.dots],
+        diamonds: [...solvedEliminations.diamonds],
+        chevrons: [...solvedEliminations.chevrons],
         minesweeper: [...solvedEliminations.minesweeper],
         waterDroplets: [...solvedEliminations.waterDroplets],
         cardinals: [...solvedEliminations.cardinals],
+        spinners: [...solvedEliminations.spinners],
+        sentinels: [...solvedEliminations.sentinels],
+        ghosts: [...solvedEliminations.ghosts],
         polyominoes: [...solvedEliminations.polyominoes],
         hexagons: [...solvedEliminations.hexagons],
       },
@@ -1852,15 +2258,35 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       colorSquares,
       starTargets,
       triangleTargets,
+      dotTargets,
+      diamondTargets,
+      chevronTargets,
       minesweeperTargets,
       waterDropletTargets,
       cardinalTargets,
+      spinnerTargets,
+      sentinelTargets,
+      ghostTargets,
       polyominoSymbols,
       negatorTargets,
       hexTargets,
     }
     let solved: Point[] | null = null
-    if (solutionPath && solutionPath.length >= 2) {
+    solved = findSimplestValidSolutionPath(
+      puzzle.edges,
+      activeKinds,
+      symbols,
+      MANUAL_SOLVER_VISIT_BUDGET
+    )
+    if (!solved) {
+      solved = findSimplestValidSolutionPath(
+        puzzle.edges,
+        activeKinds,
+        symbols,
+        MANUAL_SOLVER_VISIT_BUDGET_FALLBACK
+      )
+    }
+    if (!solved && solutionPath && solutionPath.length >= 2) {
       const hintedEdges = edgesFromPath(solutionPath)
       const hintedEvaluation = evaluatePathConstraints(
         solutionPath,
@@ -2002,9 +2428,15 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       colorSquares: new Set(eliminations.colorSquares),
       stars: new Set(eliminations.stars),
       triangles: new Set(eliminations.triangles),
+      dots: new Set(eliminations.dots),
+      diamonds: new Set(eliminations.diamonds),
+      chevrons: new Set(eliminations.chevrons),
       minesweeper: new Set(eliminations.minesweeper),
       waterDroplets: new Set(eliminations.waterDroplets),
       cardinals: new Set(eliminations.cardinals),
+      spinners: new Set(eliminations.spinners),
+      sentinels: new Set(eliminations.sentinels),
+      ghosts: new Set(eliminations.ghosts),
       polyominoes: new Set(eliminations.polyominoes),
       hexagons: new Set(eliminations.hexagons),
     }),
@@ -2130,6 +2562,39 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
               })}
             </g>
           )}
+          {chevronTargets.length > 0 && (
+            <g className="chevrons">
+              {chevronTargets.map((target, index) => {
+                const offsets =
+                  target.count === 1
+                    ? [0]
+                    : target.count === 2
+                      ? [-0.09, 0.09]
+                      : [-0.18, 0, 0.18]
+                const glowFilter = symbolGlowFilter(target.color)
+                return (
+                  <g
+                    key={`chevron-${target.cellX}-${target.cellY}-${index}`}
+                    transform={`translate(${target.cellX + 0.5} ${target.cellY + 0.5}) rotate(${chevronDirectionAngle(target.direction)})`}
+                    style={
+                      eliminated.chevrons.has(index)
+                        ? { opacity: 0.24, filter: glowFilter }
+                        : { filter: glowFilter }
+                    }
+                  >
+                    {offsets.map((offset, chevronIndex) => (
+                      <polygon
+                        key={`chevron-mark-${target.cellX}-${target.cellY}-${index}-${chevronIndex}`}
+                        className="chevron-target"
+                        points={chevronPoints(offset, 0, 0.122)}
+                        style={{ fill: target.color }}
+                      />
+                    ))}
+                  </g>
+                )
+              })}
+            </g>
+          )}
           {colorSquares.length > 0 && (
             <g className="color-squares">
               {colorSquares.map((square, index) => (
@@ -2208,6 +2673,84 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
               })}
             </g>
           )}
+          {dotTargets.length > 0 && (
+            <g className="dots">
+              {dotTargets.map((target, index) => {
+                const dotRadius = 0.085
+                const positions =
+                  target.count === 1
+                    ? [{ x: 0, y: 0 }]
+                    : target.count === 2
+                      ? [{ x: -0.10, y: 0 }, { x: 0.10, y: 0 }]
+                      : target.count === 3
+                        ? [{ x: -0.20, y: 0 }, { x: 0, y: 0 }, { x: 0.20, y: 0 }]
+                        : [
+                            { x: -0.10, y: -0.10 },
+                            { x: 0.10, y: -0.10 },
+                            { x: -0.10, y: 0.10 },
+                            { x: 0.10, y: 0.10 },
+                          ]
+                return (
+                  <g key={`dot-${target.cellX}-${target.cellY}-${index}`}>
+                    {positions.map((offset, dotIndex) => (
+                      <circle
+                        key={`dot-mark-${target.cellX}-${target.cellY}-${index}-${dotIndex}`}
+                        className="dot-target"
+                        cx={target.cellX + 0.5 + offset.x}
+                        cy={target.cellY + 0.5 + offset.y}
+                        r={dotRadius}
+                        style={
+                          eliminated.dots.has(index)
+                            ? { fill: target.color, opacity: 0.24, filter: symbolGlowFilter(target.color) }
+                            : { fill: target.color, filter: symbolGlowFilter(target.color) }
+                        }
+                      />
+                    ))}
+                  </g>
+                )
+              })}
+            </g>
+          )}
+          {diamondTargets.length > 0 && (
+            <g className="diamonds">
+              {diamondTargets.map((target, index) => {
+                const radius = 0.09
+                const positions =
+                  target.count === 1
+                    ? [{ x: 0, y: 0 }]
+                    : target.count === 2
+                      ? [{ x: -0.11, y: 0 }, { x: 0.11, y: 0 }]
+                      : target.count === 3
+                        ? [{ x: -0.2, y: 0 }, { x: 0, y: 0 }, { x: 0.2, y: 0 }]
+                        : [
+                            { x: -0.11, y: -0.11 },
+                            { x: 0.11, y: -0.11 },
+                            { x: -0.11, y: 0.11 },
+                            { x: 0.11, y: 0.11 },
+                          ]
+                return (
+                  <g key={`diamond-${target.cellX}-${target.cellY}-${index}`}>
+                    {positions.map((offset, diamondIndex) => (
+                      <polygon
+                        key={`diamond-mark-${target.cellX}-${target.cellY}-${index}-${diamondIndex}`}
+                        className="diamond-target"
+                        points={diamondPoints(
+                          target.cellX + 0.5 + offset.x,
+                          target.cellY + 0.5 + offset.y,
+                          radius
+                        )}
+                        style={
+                          eliminated.diamonds.has(index)
+                            ? { fill: target.color, opacity: 0.24, filter: symbolGlowFilter(target.color) }
+                            : { fill: target.color, filter: symbolGlowFilter(target.color) }
+                        }
+                      />
+                    ))}
+                  </g>
+                )
+              })}
+            </g>
+          )}
           {minesweeperTargets.length > 0 && (
             <g className="minesweeper-targets">
               {minesweeperTargets.map((target, index) => {
@@ -2257,7 +2800,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
                 const glowFilter = symbolGlowFilter(target.color)
                 const dropletPath =
                   'M 0 -0.2 C 0.17 -0.07 0.24 0.07 0.16 0.2 C 0.09 0.31 -0.09 0.31 -0.16 0.2 C -0.24 0.07 -0.17 -0.07 0 -0.2 Z'
-                const rimColor = colorWithAlpha(target.color, 0.56)
+                const accentColors = waterDropletAccentColors(target.color)
                 const centerYOffset = -0.055
                 return (
                   <g
@@ -2274,9 +2817,127 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
                       d={dropletPath}
                       style={{ fill: target.color }}
                     />
-                    <path className="water-droplet-rim" d={dropletPath} style={{ stroke: rimColor }} />
-                    <ellipse className="water-droplet-gloss" cx={-0.045} cy={-0.065} rx={0.054} ry={0.036} transform="rotate(-26)" />
-                    <circle className="water-droplet-bubble" cx={0.06} cy={0.088} r={0.022} />
+                    <path
+                      className="water-droplet-rim"
+                      d={dropletPath}
+                      style={{ stroke: accentColors.rim }}
+                    />
+                    <ellipse
+                      className="water-droplet-gloss"
+                      cx={-0.045}
+                      cy={-0.065}
+                      rx={0.054}
+                      ry={0.036}
+                      transform="rotate(-26)"
+                      style={{ fill: accentColors.gloss }}
+                    />
+                    <circle
+                      className="water-droplet-bubble"
+                      cx={0.06}
+                      cy={0.088}
+                      r={0.022}
+                      style={{ fill: accentColors.bubble }}
+                    />
+                  </g>
+                )
+              })}
+            </g>
+          )}
+          {spinnerTargets.length > 0 && (
+            <g className="spinners">
+              {spinnerTargets.map((target, index) => {
+                const glowFilter = symbolGlowFilter(target.color)
+                return (
+                  <g
+                    key={`spinner-${target.cellX}-${target.cellY}-${index}`}
+                    transform={`translate(${target.cellX + 0.5} ${target.cellY + 0.5}) scale(0.0086) translate(-50 -50)`}
+                    style={
+                      eliminated.spinners.has(index)
+                        ? { opacity: 0.24, filter: glowFilter }
+                        : { filter: glowFilter }
+                    }
+                  >
+                    <g
+                      transform={
+                        spinnerDirectionScaleX(target.direction) < 0
+                          ? 'translate(100 0) scale(-1 1)'
+                          : undefined
+                      }
+                    >
+                      <circle
+                        className="tile-spinner-ring"
+                        cx="50"
+                        cy="50"
+                        r="28"
+                        pathLength="100"
+                        strokeDasharray="86 14"
+                        transform="rotate(-10 50 50)"
+                        style={{ stroke: target.color }}
+                      />
+                      <polygon
+                        className="tile-spinner-head"
+                        points="62.8,22.6 69.1,30.7 59.6,29.3"
+                        style={{ stroke: target.color }}
+                      />
+                    </g>
+                  </g>
+                )
+              })}
+            </g>
+          )}
+          {sentinelTargets.length > 0 && (
+            <g className="sentinels">
+              {sentinelTargets.map((target, index) => {
+                const glowFilter = symbolGlowFilter(target.color)
+                return (
+                  <g
+                    key={`sentinel-${target.cellX}-${target.cellY}-${index}`}
+                    transform={`translate(${target.cellX + 0.5} ${target.cellY + 0.5}) rotate(${sentinelDirectionAngle(target.direction)})`}
+                    style={
+                      eliminated.sentinels.has(index)
+                        ? { opacity: 0.24, filter: glowFilter }
+                        : { filter: glowFilter }
+                    }
+                  >
+                    <path
+                      className="sentinel-arc"
+                      d="M -0.17 0.095 A 0.17 0.17 0 0 1 0.17 0.095"
+                      style={{ stroke: target.color }}
+                    />
+                    <path
+                      className="sentinel-core"
+                      d="M -0.058 0.095 A 0.058 0.058 0 0 1 0.058 0.095 Z"
+                      style={{ fill: target.color }}
+                    />
+                  </g>
+                )
+              })}
+            </g>
+          )}
+          {ghostTargets.length > 0 && (
+            <g className="ghosts">
+              {ghostTargets.map((target, index) => {
+                const glowFilter = symbolGlowFilter(target.color)
+                const eyeColor = ghostEyeColor(target.color)
+                return (
+                  <g
+                    key={`ghost-${target.cellX}-${target.cellY}-${index}`}
+                    transform={`translate(${target.cellX + 0.5} ${target.cellY + 0.5})`}
+                    style={
+                      eliminated.ghosts.has(index)
+                        ? { opacity: 0.24, filter: glowFilter }
+                        : { filter: glowFilter }
+                    }
+                  >
+                    <g transform="scale(0.0062) translate(-50 -48)">
+                      <path
+                        className="ghost-body"
+                        d="M 16 80 L 24 34 C 28 20 38 12 50 12 C 62 12 72 20 76 34 L 84 80 L 68 72 L 58 84 L 50 74 L 42 84 L 32 72 Z"
+                        style={{ fill: target.color }}
+                      />
+                      <circle className="ghost-eye" cx={37} cy={45} r={5.3} style={{ fill: eyeColor }} />
+                      <circle className="ghost-eye" cx={63} cy={45} r={5.3} style={{ fill: eyeColor }} />
+                    </g>
                   </g>
                 )
               })}

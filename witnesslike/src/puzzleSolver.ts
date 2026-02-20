@@ -1,5 +1,5 @@
 import type { TileKind } from './HomePage'
-import { END, START } from './puzzleConstants'
+import { END, NODE_COUNT, START } from './puzzleConstants'
 import type { Point } from './puzzleConstants'
 import { buildCellRegions, edgeKey, neighbors } from './puzzleUtils'
 import { checkColorSquares } from './symbols/colorSquares'
@@ -11,6 +11,10 @@ import type { ArrowTarget } from './symbols/arrows'
 import { checkHexTargets } from './symbols/hexagon'
 import type { HexTarget } from './symbols/hexagon'
 import type { NegatorTarget } from './symbols/negator'
+import { checkSentinels, collectFailingSentinelIndexes } from './symbols/sentinel'
+import type { SentinelTarget } from './symbols/sentinel'
+import { checkSpinners, collectFailingSpinnerIndexes } from './symbols/spinner'
+import type { SpinnerTarget } from './symbols/spinner'
 import { checkMinesweeperNumbers, countSeparatedNeighborCells } from './symbols/minesweeperNumbers'
 import type { MinesweeperNumberTarget } from './symbols/minesweeperNumbers'
 import { checkPolyominoes } from './symbols/polyomino'
@@ -19,20 +23,34 @@ import { checkStars } from './symbols/stars'
 import type { StarTarget } from './symbols/stars'
 import { checkTriangles } from './symbols/triangles'
 import type { TriangleTarget } from './symbols/triangles'
+import { checkDots } from './symbols/dots'
+import type { DotTarget } from './symbols/dots'
+import { checkDiamonds, countTouchedCornerBends } from './symbols/diamonds'
+import type { DiamondTarget } from './symbols/diamonds'
+import { checkChevrons, countChevronRegionCells } from './symbols/chevrons'
+import type { ChevronTarget } from './symbols/chevrons'
 import { checkWaterDroplets, isWaterDropletContained } from './symbols/waterDroplet'
 import type { WaterDropletTarget } from './symbols/waterDroplet'
+import { checkGhosts, collectFailingGhostIndexes } from './symbols/ghost'
+import type { GhostTarget } from './symbols/ghost'
 
 type SolverSymbols = {
   arrowTargets: ArrowTarget[]
   colorSquares: ColorSquare[]
   starTargets: StarTarget[]
   triangleTargets: TriangleTarget[]
+  dotTargets: DotTarget[]
+  diamondTargets: DiamondTarget[]
+  chevronTargets: ChevronTarget[]
   minesweeperTargets: MinesweeperNumberTarget[]
   waterDropletTargets: WaterDropletTarget[]
   cardinalTargets: CardinalTarget[]
+  spinnerTargets: SpinnerTarget[]
+  ghostTargets: GhostTarget[]
   polyominoSymbols: PolyominoSymbol[]
   hexTargets: HexTarget[]
   negatorTargets: NegatorTarget[]
+  sentinelTargets: SentinelTarget[]
 }
 
 export type EliminatedSymbolRef =
@@ -40,9 +58,15 @@ export type EliminatedSymbolRef =
   | { kind: 'color-square'; index: number }
   | { kind: 'star'; index: number }
   | { kind: 'triangle'; index: number }
+  | { kind: 'dot'; index: number }
+  | { kind: 'diamond'; index: number }
+  | { kind: 'chevron'; index: number }
   | { kind: 'minesweeper'; index: number }
   | { kind: 'water-droplet'; index: number }
   | { kind: 'cardinal'; index: number }
+  | { kind: 'spinner'; index: number }
+  | { kind: 'sentinel'; index: number }
+  | { kind: 'ghost'; index: number }
   | { kind: 'polyomino'; index: number }
   | { kind: 'hexagon'; index: number }
 
@@ -153,6 +177,26 @@ function buildFailingSymbolKeySet(
       failing.add(`triangle:${index}`)
     }
   })
+  symbols.dotTargets.forEach((target, index) => {
+    const touchedCorners = new Set<string>([
+      `${target.cellX},${target.cellY}`,
+      `${target.cellX + 1},${target.cellY}`,
+      `${target.cellX},${target.cellY + 1}`,
+      `${target.cellX + 1},${target.cellY + 1}`,
+    ])
+    let touchedCount = 0
+    for (const point of path) {
+      if (touchedCorners.has(`${point.x},${point.y}`)) touchedCount += 1
+    }
+    if (touchedCount !== target.count) {
+      failing.add(`dot:${index}`)
+    }
+  })
+  symbols.diamondTargets.forEach((target, index) => {
+    if (countTouchedCornerBends(path, target.cellX, target.cellY) !== target.count) {
+      failing.add(`diamond:${index}`)
+    }
+  })
 
   symbols.hexTargets.forEach((target, index) => {
     if (target.kind === 'edge') {
@@ -170,6 +214,11 @@ function buildFailingSymbolKeySet(
   })
 
   const regions = buildCellRegions(usedEdges)
+  symbols.chevronTargets.forEach((target, index) => {
+    if (countChevronRegionCells(regions, target) !== target.count) {
+      failing.add(`chevron:${index}`)
+    }
+  })
 
   symbols.minesweeperTargets.forEach((target, index) => {
     if (countSeparatedNeighborCells(regions, target.cellX, target.cellY) !== target.value) {
@@ -186,6 +235,32 @@ function buildFailingSymbolKeySet(
       failing.add(`cardinal:${index}`)
     }
   })
+  for (const index of collectFailingSpinnerIndexes(path, symbols.spinnerTargets)) {
+    failing.add(`spinner:${index}`)
+  }
+  for (const index of collectFailingGhostIndexes(usedEdges, symbols.ghostTargets)) {
+    failing.add(`ghost:${index}`)
+  }
+  for (const index of collectFailingSentinelIndexes(usedEdges, {
+    arrowTargets: symbols.arrowTargets,
+    colorSquares: symbols.colorSquares,
+    starTargets: symbols.starTargets,
+    triangleTargets: symbols.triangleTargets,
+    dotTargets: symbols.dotTargets,
+    diamondTargets: symbols.diamondTargets,
+    chevronTargets: symbols.chevronTargets,
+    minesweeperTargets: symbols.minesweeperTargets,
+    waterDropletTargets: symbols.waterDropletTargets,
+    cardinalTargets: symbols.cardinalTargets,
+    spinnerTargets: symbols.spinnerTargets,
+    ghostTargets: symbols.ghostTargets,
+    polyominoSymbols: symbols.polyominoSymbols,
+    negatorTargets: symbols.negatorTargets,
+    hexTargets: symbols.hexTargets,
+    sentinelTargets: symbols.sentinelTargets,
+  })) {
+    failing.add(`sentinel:${index}`)
+  }
 
   const colorSquaresByRegion = new Map<number, Array<number>>()
   const regionColorSets = new Map<number, Set<string>>()
@@ -235,11 +310,17 @@ function buildFailingSymbolKeySet(
   symbols.arrowTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
   symbols.colorSquares.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
   symbols.triangleTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
+  symbols.dotTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
+  symbols.diamondTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
+  symbols.chevronTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
   symbols.minesweeperTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
   symbols.waterDropletTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
   symbols.cardinalTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
+  symbols.spinnerTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
+  symbols.ghostTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
   symbols.polyominoSymbols.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
   symbols.negatorTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
+  symbols.sentinelTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
 
   for (const colorMap of regionCounts.values()) {
     for (const entry of colorMap.values()) {
@@ -280,10 +361,16 @@ function satisfiesBaseConstraints(
       symbols.colorSquares,
       symbols.polyominoSymbols,
       symbols.triangleTargets,
+      symbols.dotTargets,
+      symbols.diamondTargets,
+      symbols.chevronTargets,
       symbols.minesweeperTargets,
       symbols.waterDropletTargets,
       symbols.cardinalTargets,
-      symbols.negatorTargets
+      symbols.spinnerTargets,
+      symbols.ghostTargets,
+      symbols.negatorTargets,
+      symbols.sentinelTargets
     )) {
       return false
     }
@@ -291,6 +378,18 @@ function satisfiesBaseConstraints(
 
   if (activeKinds.includes('triangles')) {
     if (!checkTriangles(usedEdges, symbols.triangleTargets)) return false
+  }
+
+  if (activeKinds.includes('dots')) {
+    if (!checkDots(path, symbols.dotTargets)) return false
+  }
+
+  if (activeKinds.includes('diamonds')) {
+    if (!checkDiamonds(path, symbols.diamondTargets)) return false
+  }
+
+  if (activeKinds.includes('chevrons')) {
+    if (!checkChevrons(usedEdges, symbols.chevronTargets)) return false
   }
 
   if (activeKinds.includes('minesweeper-numbers')) {
@@ -303,6 +402,37 @@ function satisfiesBaseConstraints(
 
   if (activeKinds.includes('cardinal')) {
     if (!checkCardinals(usedEdges, symbols.cardinalTargets)) return false
+  }
+
+  if (activeKinds.includes('spinner')) {
+    if (!checkSpinners(path, symbols.spinnerTargets)) return false
+  }
+
+  if (activeKinds.includes('ghost')) {
+    if (!checkGhosts(usedEdges, symbols.ghostTargets)) return false
+  }
+
+  if (activeKinds.includes('sentinel')) {
+    if (!checkSentinels(usedEdges, {
+      arrowTargets: symbols.arrowTargets,
+      colorSquares: symbols.colorSquares,
+      starTargets: symbols.starTargets,
+      triangleTargets: symbols.triangleTargets,
+      dotTargets: symbols.dotTargets,
+      diamondTargets: symbols.diamondTargets,
+      chevronTargets: symbols.chevronTargets,
+      minesweeperTargets: symbols.minesweeperTargets,
+      waterDropletTargets: symbols.waterDropletTargets,
+      cardinalTargets: symbols.cardinalTargets,
+      spinnerTargets: symbols.spinnerTargets,
+      ghostTargets: symbols.ghostTargets,
+      polyominoSymbols: symbols.polyominoSymbols,
+      negatorTargets: symbols.negatorTargets,
+      hexTargets: symbols.hexTargets,
+      sentinelTargets: symbols.sentinelTargets,
+    })) {
+      return false
+    }
   }
 
   if (
@@ -340,16 +470,22 @@ export function evaluatePathConstraints(
   const removableSymbols: Array<NegationTargetRef & { region: number }> = []
   const failingKeys = buildFailingSymbolKeySet(path, usedEdges, symbols)
   const candidateKindPriority: Record<NegationTargetRef['kind'], number> = {
-    negator: 0,
+    negator: 99,
     star: 1,
     arrow: 2,
-    triangle: 3,
-    minesweeper: 4,
-    'water-droplet': 5,
-    cardinal: 6,
-    'color-square': 7,
-    hexagon: 8,
-    polyomino: 9,
+    chevron: 3,
+    triangle: 4,
+    dot: 5,
+    diamond: 6,
+    minesweeper: 7,
+    'water-droplet': 8,
+    cardinal: 9,
+    spinner: 10,
+    sentinel: 11,
+    ghost: 12,
+    'color-square': 13,
+    hexagon: 14,
+    polyomino: 15,
   }
 
   symbols.arrowTargets.forEach((target, index) => {
@@ -372,6 +508,21 @@ export function evaluatePathConstraints(
     if (region === undefined) return
     removableSymbols.push({ kind: 'triangle', index, region })
   })
+  symbols.dotTargets.forEach((target, index) => {
+    const region = regions.get(`${target.cellX},${target.cellY}`)
+    if (region === undefined) return
+    removableSymbols.push({ kind: 'dot', index, region })
+  })
+  symbols.diamondTargets.forEach((target, index) => {
+    const region = regions.get(`${target.cellX},${target.cellY}`)
+    if (region === undefined) return
+    removableSymbols.push({ kind: 'diamond', index, region })
+  })
+  symbols.chevronTargets.forEach((target, index) => {
+    const region = regions.get(`${target.cellX},${target.cellY}`)
+    if (region === undefined) return
+    removableSymbols.push({ kind: 'chevron', index, region })
+  })
   symbols.minesweeperTargets.forEach((target, index) => {
     const region = regions.get(`${target.cellX},${target.cellY}`)
     if (region === undefined) return
@@ -386,6 +537,21 @@ export function evaluatePathConstraints(
     const region = regions.get(`${target.cellX},${target.cellY}`)
     if (region === undefined) return
     removableSymbols.push({ kind: 'cardinal', index, region })
+  })
+  symbols.spinnerTargets.forEach((target, index) => {
+    const region = regions.get(`${target.cellX},${target.cellY}`)
+    if (region === undefined) return
+    removableSymbols.push({ kind: 'spinner', index, region })
+  })
+  symbols.ghostTargets.forEach((target, index) => {
+    const region = regions.get(`${target.cellX},${target.cellY}`)
+    if (region === undefined) return
+    removableSymbols.push({ kind: 'ghost', index, region })
+  })
+  symbols.sentinelTargets.forEach((target, index) => {
+    const region = regions.get(`${target.cellX},${target.cellY}`)
+    if (region === undefined) return
+    removableSymbols.push({ kind: 'sentinel', index, region })
   })
   symbols.polyominoSymbols.forEach((target, index) => {
     const region = regions.get(`${target.cellX},${target.cellY}`)
@@ -406,7 +572,7 @@ export function evaluatePathConstraints(
   const negatorCandidates = symbols.negatorTargets.map((target, negatorIndex) => {
     const region = regions.get(`${target.cellX},${target.cellY}`)
     if (region === undefined) return [] as Array<NegationTargetRef & { region: number }>
-    return removableSymbols.filter(
+    const sortedCandidates = removableSymbols.filter(
       (symbol) =>
         symbol.region === region &&
         !(symbol.kind === 'negator' && symbol.index === negatorIndex)
@@ -418,6 +584,9 @@ export function evaluatePathConstraints(
       if (aFailing !== bFailing) return bFailing - aFailing
       return candidateKindPriority[a.kind] - candidateKindPriority[b.kind]
     })
+    const nonNegatorCandidates = sortedCandidates.filter((candidate) => candidate.kind !== 'negator')
+    const negatorOnlyCandidates = sortedCandidates.filter((candidate) => candidate.kind === 'negator')
+    return [...nonNegatorCandidates, ...negatorOnlyCandidates]
   })
 
   if (negatorCandidates.some((candidates) => candidates.length === 0)) {
@@ -436,9 +605,15 @@ export function evaluatePathConstraints(
       const removedArrows = new Set<number>()
       const removedStars = new Set<number>()
       const removedTriangles = new Set<number>()
+      const removedDots = new Set<number>()
+      const removedDiamonds = new Set<number>()
+      const removedChevrons = new Set<number>()
       const removedMinesweeper = new Set<number>()
       const removedWaterDroplets = new Set<number>()
       const removedCardinals = new Set<number>()
+      const removedSpinners = new Set<number>()
+      const removedGhosts = new Set<number>()
+      const removedSentinels = new Set<number>()
       const removedPolyominoes = new Set<number>()
       const removedHexagons = new Set<number>()
       const removedNegators = new Set<number>(
@@ -455,9 +630,15 @@ export function evaluatePathConstraints(
         if (symbol.kind === 'color-square') removedColorSquares.add(symbol.index)
         if (symbol.kind === 'star') removedStars.add(symbol.index)
         if (symbol.kind === 'triangle') removedTriangles.add(symbol.index)
+        if (symbol.kind === 'dot') removedDots.add(symbol.index)
+        if (symbol.kind === 'diamond') removedDiamonds.add(symbol.index)
+        if (symbol.kind === 'chevron') removedChevrons.add(symbol.index)
         if (symbol.kind === 'minesweeper') removedMinesweeper.add(symbol.index)
         if (symbol.kind === 'water-droplet') removedWaterDroplets.add(symbol.index)
         if (symbol.kind === 'cardinal') removedCardinals.add(symbol.index)
+        if (symbol.kind === 'spinner') removedSpinners.add(symbol.index)
+        if (symbol.kind === 'ghost') removedGhosts.add(symbol.index)
+        if (symbol.kind === 'sentinel') removedSentinels.add(symbol.index)
         if (symbol.kind === 'polyomino') removedPolyominoes.add(symbol.index)
         if (symbol.kind === 'hexagon') removedHexagons.add(symbol.index)
         if (symbol.kind === 'negator') continue
@@ -468,9 +649,15 @@ export function evaluatePathConstraints(
         colorSquares: symbols.colorSquares.filter((_, index) => !removedColorSquares.has(index)),
         starTargets: symbols.starTargets.filter((_, index) => !removedStars.has(index)),
         triangleTargets: symbols.triangleTargets.filter((_, index) => !removedTriangles.has(index)),
+        dotTargets: symbols.dotTargets.filter((_, index) => !removedDots.has(index)),
+        diamondTargets: symbols.diamondTargets.filter((_, index) => !removedDiamonds.has(index)),
+        chevronTargets: symbols.chevronTargets.filter((_, index) => !removedChevrons.has(index)),
         minesweeperTargets: symbols.minesweeperTargets.filter((_, index) => !removedMinesweeper.has(index)),
         waterDropletTargets: symbols.waterDropletTargets.filter((_, index) => !removedWaterDroplets.has(index)),
         cardinalTargets: symbols.cardinalTargets.filter((_, index) => !removedCardinals.has(index)),
+        spinnerTargets: symbols.spinnerTargets.filter((_, index) => !removedSpinners.has(index)),
+        ghostTargets: symbols.ghostTargets.filter((_, index) => !removedGhosts.has(index)),
+        sentinelTargets: symbols.sentinelTargets.filter((_, index) => !removedSentinels.has(index)),
         polyominoSymbols: symbols.polyominoSymbols.filter((_, index) => !removedPolyominoes.has(index)),
         hexTargets: symbols.hexTargets.filter((_, index) => !removedHexagons.has(index)),
         negatorTargets: symbols.negatorTargets.filter((_, index) => !removedNegators.has(index)),
@@ -598,4 +785,111 @@ export function findAnyValidSolutionPath(
 
   if (!dfs(START)) return null
   return [...path]
+}
+
+type StepDirection = 'R' | 'L' | 'U' | 'D'
+
+function stepDirection(from: Point, to: Point): StepDirection {
+  if (to.x > from.x) return 'R'
+  if (to.x < from.x) return 'L'
+  if (to.y > from.y) return 'D'
+  return 'U'
+}
+
+function manhattanDistanceToEnd(point: Point) {
+  return Math.abs(END.x - point.x) + Math.abs(END.y - point.y)
+}
+
+export function findSimplestValidSolutionPath(
+  edges: Set<string>,
+  activeKinds: TileKind[],
+  symbols: SolverSymbols,
+  maxVisitedNodes = Number.POSITIVE_INFINITY
+) {
+  const path: Point[] = [START]
+  const usedEdges = new Set<string>()
+  const visitedNodes = new Set<string>([pointKey(START)])
+  const minimumEdgeCount = manhattanDistanceToEnd(START)
+  const maximumEdgeCount = NODE_COUNT * NODE_COUNT - 1
+  const requiredParity = minimumEdgeCount % 2
+  let visitedCount = 0
+  let aborted = false
+
+  const searchForExactEdgeCount = (edgeLimit: number) => {
+    let bestPath: Point[] | null = null
+    let bestTurnCount = Number.POSITIVE_INFINITY
+
+    const dfs = (
+      current: Point,
+      previousDirection: StepDirection | null,
+      turnCount: number
+    ) => {
+      if (aborted) return
+
+      visitedCount += 1
+      if (visitedCount > maxVisitedNodes) {
+        aborted = true
+        return
+      }
+
+      const usedEdgeCount = path.length - 1
+      const remainingDistance = manhattanDistanceToEnd(current)
+      if (usedEdgeCount + remainingDistance > edgeLimit) return
+
+      if (isAtEnd(current)) {
+        if (usedEdgeCount !== edgeLimit) return
+        const evaluation = evaluatePathConstraints(path, usedEdges, activeKinds, symbols, 'first')
+        if (!evaluation.ok) return
+        if (turnCount < bestTurnCount) {
+          bestTurnCount = turnCount
+          bestPath = [...path]
+        }
+        return
+      }
+
+      if (turnCount >= bestTurnCount) return
+
+      const nextNodes = neighbors(current)
+        .filter((next) => edges.has(edgeKey(current, next)) && !visitedNodes.has(pointKey(next)))
+        .map((next) => {
+          const direction = stepDirection(current, next)
+          const distance = manhattanDistanceToEnd(next)
+          const turnPenalty =
+            previousDirection && previousDirection !== direction ? 1 : 0
+          return { next, direction, distance, turnPenalty }
+        })
+        .sort((a, b) => {
+          if (a.distance !== b.distance) return a.distance - b.distance
+          if (a.turnPenalty !== b.turnPenalty) return a.turnPenalty - b.turnPenalty
+          if (a.next.y !== b.next.y) return a.next.y - b.next.y
+          return a.next.x - b.next.x
+        })
+
+      for (const candidate of nextNodes) {
+        const edge = edgeKey(current, candidate.next)
+        const nextTurnCount = turnCount + candidate.turnPenalty
+        if (nextTurnCount >= bestTurnCount) continue
+        visitedNodes.add(pointKey(candidate.next))
+        usedEdges.add(edge)
+        path.push(candidate.next)
+        dfs(candidate.next, candidate.direction, nextTurnCount)
+        path.pop()
+        usedEdges.delete(edge)
+        visitedNodes.delete(pointKey(candidate.next))
+        if (aborted) return
+      }
+    }
+
+    dfs(START, null, 0)
+    return bestPath
+  }
+
+  for (let edgeLimit = minimumEdgeCount; edgeLimit <= maximumEdgeCount; edgeLimit += 1) {
+    if (edgeLimit % 2 !== requiredParity) continue
+    const solved = searchForExactEdgeCount(edgeLimit)
+    if (solved) return solved
+    if (aborted) return null
+  }
+
+  return null
 }

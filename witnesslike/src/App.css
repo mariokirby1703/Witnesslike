@@ -393,6 +393,11 @@
   stroke-linecap: square;
 }
 
+.chevron-target {
+  fill: #ff4c00;
+  stroke: none;
+}
+
 .negator-arm {
   stroke-width: 0.085;
   stroke-linecap: square;
@@ -400,6 +405,16 @@
 
 .triangle-target {
   fill: #ff8a00;
+  stroke: none;
+}
+
+.dot-target {
+  fill: #f4eb2f;
+  stroke: none;
+}
+
+.diamond-target {
+  fill: #9fbc00;
   stroke: none;
 }
 
@@ -433,6 +448,39 @@
   stroke-width: 0.055;
   stroke-linecap: square;
   stroke-linejoin: miter;
+}
+
+.sentinel-arc {
+  fill: none;
+  stroke-width: 0.05;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sentinel-core {
+  stroke: none;
+}
+
+.ghost-body {
+  stroke: none;
+}
+
+.ghost-eye {
+  fill: #101318;
+  stroke: none;
+}
+
+.spinner-arc,
+.spinner-head {
+  fill: none;
+}
+
+.spinner-arc {
+  stroke-width: 0.082;
+}
+
+.spinner-head {
+  stroke-width: 0.072;
 }
 
 .mine-number-shadow {
@@ -486,6 +534,10 @@
   stroke-width: 8;
 }
 
+.tile-chevron {
+  fill: #ff4c00;
+}
+
 .tile-negator-arm {
   stroke: #4f4f4f;
   stroke-width: 12;
@@ -494,6 +546,22 @@
 
 .tile-triangle {
   fill: #ff8a00;
+}
+
+.tile-dot {
+  fill: #f4eb2f;
+}
+
+.tile-diamond {
+  fill: #9fbc00;
+}
+
+.tile-ghost-body {
+  fill: #dbd8dd;
+}
+
+.tile-ghost-eye {
+  fill: #101318;
 }
 
 .tile-water-droplet {
@@ -527,6 +595,32 @@
   stroke-width: 7.8;
   stroke-linecap: square;
   stroke-linejoin: miter;
+}
+
+.tile-sentinel-arc {
+  fill: none;
+  stroke: #efe96f;
+  stroke-width: 9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tile-sentinel-core {
+  fill: #efe96f;
+}
+
+.tile-spinner-ring,
+.tile-spinner-head {
+  fill: none;
+  stroke: #39ff14;
+}
+
+.tile-spinner-ring {
+  stroke-width: 8.2;
+}
+
+.tile-spinner-head {
+  stroke-width: 7.2;
 }
 
 .tile-mine-shadow {

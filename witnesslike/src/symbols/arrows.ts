@@ -155,10 +155,7 @@ export function generateArrowsForEdges(
 
   const targetCount = lowSymbolSet
     ? minCount + randInt(rng, maxAllowed - minCount + 1)
-    : randInt(rng, maxAllowed + 1)
-  if (targetCount === 0) {
-    return { arrows: [] as ArrowTarget[], solutionPath }
-  }
+    : 1 + randInt(rng, maxAllowed)
 
   let palette = [DEFAULT_ARROW_COLOR]
   if (starsActive) {

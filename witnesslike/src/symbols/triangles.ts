@@ -58,14 +58,14 @@ export function generateTrianglesForEdges(
   }
 
   const lowSymbolSet = selectedSymbolCount <= 2
-  const minCount = lowSymbolSet ? 3 : 0
+  const minCount = lowSymbolSet ? 3 : 1
   const maxCount = lowSymbolSet ? 10 : 5
   const maxAllowed = Math.min(maxCount, candidates.length)
   if (maxAllowed < minCount) return null
 
   let targetCount: number
   if (!lowSymbolSet) {
-    targetCount = randInt(rng, maxAllowed + 1)
+    targetCount = 1 + randInt(rng, maxAllowed)
   } else {
     const range = maxAllowed - minCount
     if (selectedSymbolCount === 2) {
@@ -75,10 +75,6 @@ export function generateTrianglesForEdges(
     } else {
       targetCount = minCount + randInt(rng, range + 1)
     }
-  }
-
-  if (targetCount === 0) {
-    return { triangles: [] as TriangleTarget[], solutionPath }
   }
 
   let palette = [DEFAULT_TRIANGLE_COLOR]

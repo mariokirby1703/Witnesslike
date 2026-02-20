@@ -318,6 +318,110 @@ export function regionCountForPath(path: Point[]) {
   return new Set(regions.values()).size
 }
 
+function pathTurnCount(path: Point[]) {
+  if (path.length < 3) return 0
+  let turns = 0
+  let prevDx = path[1].x - path[0].x
+  let prevDy = path[1].y - path[0].y
+  for (let i = 2; i < path.length; i += 1) {
+    const dx = path[i].x - path[i - 1].x
+    const dy = path[i].y - path[i - 1].y
+    if (dx !== prevDx || dy !== prevDy) {
+      turns += 1
+    }
+    prevDx = dx
+    prevDy = dy
+  }
+  return turns
+}
+
+function longestStraightRun(path: Point[]) {
+  if (path.length < 2) return 0
+  let longest = 1
+  let currentRun = 1
+  let prevDx = path[1].x - path[0].x
+  let prevDy = path[1].y - path[0].y
+  for (let i = 2; i < path.length; i += 1) {
+    const dx = path[i].x - path[i - 1].x
+    const dy = path[i].y - path[i - 1].y
+    if (dx === prevDx && dy === prevDy) {
+      currentRun += 1
+    } else {
+      if (currentRun > longest) longest = currentRun
+      currentRun = 1
+      prevDx = dx
+      prevDy = dy
+    }
+  }
+  if (currentRun > longest) longest = currentRun
+  return longest
+}
+
+function interiorNodeCount(path: Point[]) {
+  return path.filter(
+    (point) =>
+      point.x > 0 &&
+      point.x < MAX_INDEX &&
+      point.y > 0 &&
+      point.y < MAX_INDEX
+  ).length
+}
+
+type WildnessProfile = {
+  regionWeight: number
+  turnWeight: number
+  interiorWeight: number
+  lengthWeight: number
+  straightPenalty: number
+}
+
+function pickWildnessProfile(rng: () => number): WildnessProfile {
+  const presets: WildnessProfile[] = [
+    { regionWeight: 205, turnWeight: 44, interiorWeight: 20, lengthWeight: 9, straightPenalty: 36 },
+    { regionWeight: 175, turnWeight: 56, interiorWeight: 19, lengthWeight: 11, straightPenalty: 33 },
+    { regionWeight: 196, turnWeight: 36, interiorWeight: 27, lengthWeight: 10, straightPenalty: 31 },
+    { regionWeight: 186, turnWeight: 50, interiorWeight: 16, lengthWeight: 8, straightPenalty: 40 },
+  ]
+  const base = presets[randInt(rng, presets.length)] ?? presets[0]
+  const jitter = () => (rng() - 0.5) * 8
+  return {
+    regionWeight: base.regionWeight + jitter(),
+    turnWeight: base.turnWeight + jitter(),
+    interiorWeight: base.interiorWeight + jitter(),
+    lengthWeight: base.lengthWeight + jitter() * 0.5,
+    straightPenalty: base.straightPenalty + jitter(),
+  }
+}
+
+export function pathSignature(path: Point[]) {
+  if (path.length < 2) return ''
+  const segments: string[] = []
+  for (let i = 1; i < path.length; i += 1) {
+    const dx = path[i].x - path[i - 1].x
+    const dy = path[i].y - path[i - 1].y
+    if (dx > 0) segments.push('R')
+    else if (dx < 0) segments.push('L')
+    else if (dy > 0) segments.push('D')
+    else segments.push('U')
+  }
+  return segments.join('')
+}
+
+function pathWildnessScore(path: Point[], profile: WildnessProfile) {
+  const regions = regionCountForPath(path)
+  const turns = pathTurnCount(path)
+  const straightPenalty = longestStraightRun(path)
+  const interior = interiorNodeCount(path)
+  const length = path.length
+  return (
+    regions * profile.regionWeight +
+    turns * profile.turnWeight +
+    interior * profile.interiorWeight +
+    length * profile.lengthWeight -
+    straightPenalty * profile.straightPenalty
+  )
+}
+
 export function buildLoopyPath(edges: Set<string>, rng: () => number, minLength: number, maxSteps: number) {
   let current = START
   const path: Point[] = [START]
@@ -352,7 +456,34 @@ export function buildLoopyPath(edges: Set<string>, rng: () => number, minLength:
       }
     }
 
-    const pick = options[randInt(rng, options.length)]
+    const previous = path.length >= 2 ? path[path.length - 2] : null
+    const weightedOptions: typeof options = []
+    for (const candidate of options) {
+      let weight = 1
+      const isInterior =
+        candidate.neighbor.x > 0 &&
+        candidate.neighbor.x < MAX_INDEX &&
+        candidate.neighbor.y > 0 &&
+        candidate.neighbor.y < MAX_INDEX
+      if (isInterior) weight += 2
+      if (previous) {
+        const prevDx = current.x - previous.x
+        const prevDy = current.y - previous.y
+        const nextDx = candidate.neighbor.x - current.x
+        const nextDy = candidate.neighbor.y - current.y
+        const isTurn = prevDx !== nextDx || prevDy !== nextDy
+        if (isTurn) {
+          weight += 3
+        } else if (path.length > minLength) {
+          weight = Math.max(1, weight - 1)
+        }
+      }
+      for (let repeat = 0; repeat < weight; repeat += 1) {
+        weightedOptions.push(candidate)
+      }
+    }
+    const pickPool = weightedOptions.length > 0 ? weightedOptions : options
+    const pick = pickPool[randInt(rng, pickPool.length)]
     usedEdges.add(pick.key)
     current = pick.neighbor
     path.push(current)
@@ -374,27 +505,68 @@ export function findBestLoopyPathByRegions(
   edges: Set<string>,
   rng: () => number,
   attempts: number,
-  minLength: number
+  minLength: number,
+  avoidSignatures?: ReadonlySet<string>
 ) {
+  const profile = pickWildnessProfile(rng)
   let bestPath: Point[] | null = null
-  let bestRegions = 0
-  let stagnantAttempts = 0
+  let bestScore = Number.NEGATIVE_INFINITY
+  let bestRegions = Number.NEGATIVE_INFINITY
+  const candidatesBySignature = new Map<
+    string,
+    { path: Point[]; score: number; regionCount: number; signature: string }
+  >()
   const maxSteps = Math.max(20, edges.size - 4)
   for (let i = 0; i < attempts; i += 1) {
     const path = buildLoopyPath(edges, rng, minLength, maxSteps)
     if (!path) continue
     const regionCount = regionCountForPath(path)
-    if (regionCount > bestRegions) {
+    const score = pathWildnessScore(path, profile)
+    const signature = pathSignature(path)
+    const existing = candidatesBySignature.get(signature)
+    if (!existing || score > existing.score) {
+      candidatesBySignature.set(signature, { path, score, regionCount, signature })
+    }
+    const isBetter = score > bestScore || (score === bestScore && regionCount > bestRegions)
+    if (isBetter) {
+      bestScore = score
       bestRegions = regionCount
       bestPath = path
-      stagnantAttempts = 0
-      if (bestRegions >= 7 && i >= Math.floor(attempts * 0.25)) break
-      continue
     }
-    stagnantAttempts += 1
-    if (bestRegions >= 5 && stagnantAttempts >= 45) break
   }
-  return bestPath
+  if (candidatesBySignature.size === 0) return bestPath
+
+  const candidates = Array.from(candidatesBySignature.values()).sort((a, b) => b.score - a.score)
+  const topScore = candidates[0].score
+  const scoreWindow = 140
+  const pooled = candidates
+    .filter((candidate) => candidate.score >= topScore - scoreWindow)
+    .slice(0, Math.min(10, candidates.length))
+  const repeatFilteredPool =
+    avoidSignatures && avoidSignatures.size > 0
+      ? pooled.filter((candidate) => !avoidSignatures.has(candidate.signature))
+      : pooled
+  const chosenPool = repeatFilteredPool.length > 0 ? repeatFilteredPool : pooled
+  if (chosenPool.length <= 1) {
+    return chosenPool[0]?.path ?? bestPath
+  }
+
+  const minPoolScore = chosenPool.reduce(
+    (minScore, candidate) => Math.min(minScore, candidate.score),
+    Number.POSITIVE_INFINITY
+  )
+  const weightedPool = chosenPool.map((candidate) => ({
+    path: candidate.path,
+    weight: Math.max(1, candidate.score - minPoolScore + 1),
+  }))
+  const totalWeight = weightedPool.reduce((sum, candidate) => sum + candidate.weight, 0)
+  let pick = rng() * totalWeight
+  for (const candidate of weightedPool) {
+    pick -= candidate.weight
+    if (pick <= 0) return candidate.path
+  }
+
+  return weightedPool[weightedPool.length - 1]?.path ?? bestPath
 }
 
 export function shapeBounds(cells: Point[]) {

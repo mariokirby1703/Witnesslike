@@ -37,6 +37,28 @@ const ACTIVE_SYMBOLS: Array<{ label: string; description: string; kind: TileKind
     description: 'From the symbol, all four directions must be blocked by the path before the grid edge.',
     kind: 'cardinal',
   },
+  {
+    label: 'Sentinel',
+    description: 'In its facing half-plane, no symbols may appear in the same region.',
+    kind: 'sentinel',
+  },
+  {
+    label: 'Spinner',
+    description: 'Whenever the path touches this cell border, movement must follow the shown spin direction.',
+    kind: 'spinner',
+  },
+  { label: 'Dots', description: 'Pass through each marked cell corner exactly as many times as shown.', kind: 'dots' },
+  { label: 'Diamonds', description: 'Count bends on the four corners of that cell.', kind: 'diamonds' },
+  {
+    label: 'Chevrons',
+    description: 'Count cells in the shown direction that stay in the same region as the symbol.',
+    kind: 'chevrons',
+  },
+  {
+    label: 'Ghost',
+    description: 'Each ghost needs its own region, and the total region count must equal ghost count.',
+    kind: 'ghost',
+  },
 ]
 
 const TOTAL_SYMBOL_FIELDS = 20

@@ -5,8 +5,14 @@ import type { CardinalTarget } from './cardinal'
 import type { MinesweeperNumberTarget } from './minesweeperNumbers'
 import type { NegatorTarget } from './negator'
 import type { PolyominoSymbol } from './polyomino'
+import type { SentinelTarget } from './sentinel'
+import type { SpinnerTarget } from './spinner'
 import type { TriangleTarget } from './triangles'
+import type { DotTarget } from './dots'
+import type { DiamondTarget } from './diamonds'
+import type { ChevronTarget } from './chevrons'
 import type { WaterDropletTarget } from './waterDroplet'
+import type { GhostTarget } from './ghost'
 
 export type StarTarget = {
   cellX: number
@@ -22,9 +28,14 @@ export function generateStarsForEdges(
   colorSquares: ColorSquare[],
   polyominoSymbols: PolyominoSymbol[],
   triangleTargets: TriangleTarget[],
+  dotTargets: DotTarget[],
+  diamondTargets: DiamondTarget[],
+  chevronTargets: ChevronTarget[],
   minesweeperTargets: MinesweeperNumberTarget[],
   waterDropletTargets: WaterDropletTarget[],
   cardinalTargets: CardinalTarget[],
+  spinnerTargets: SpinnerTarget[],
+  ghostTargets: GhostTarget[],
   allowNegatorOrphan = false,
   preferredPath?: { x: number; y: number }[],
   selectedSymbolCount = 3
@@ -74,6 +85,27 @@ export function generateStarsForEdges(
     const regionMap = coloredCounts.get(region)
     regionMap?.set(triangle.color, (regionMap.get(triangle.color) ?? 0) + 1)
   }
+  for (const dot of dotTargets) {
+    const region = regions.get(`${dot.cellX},${dot.cellY}`)
+    if (region === undefined) continue
+    if (!coloredCounts.has(region)) coloredCounts.set(region, new Map())
+    const regionMap = coloredCounts.get(region)
+    regionMap?.set(dot.color, (regionMap.get(dot.color) ?? 0) + 1)
+  }
+  for (const diamond of diamondTargets) {
+    const region = regions.get(`${diamond.cellX},${diamond.cellY}`)
+    if (region === undefined) continue
+    if (!coloredCounts.has(region)) coloredCounts.set(region, new Map())
+    const regionMap = coloredCounts.get(region)
+    regionMap?.set(diamond.color, (regionMap.get(diamond.color) ?? 0) + 1)
+  }
+  for (const chevron of chevronTargets) {
+    const region = regions.get(`${chevron.cellX},${chevron.cellY}`)
+    if (region === undefined) continue
+    if (!coloredCounts.has(region)) coloredCounts.set(region, new Map())
+    const regionMap = coloredCounts.get(region)
+    regionMap?.set(chevron.color, (regionMap.get(chevron.color) ?? 0) + 1)
+  }
   for (const mine of minesweeperTargets) {
     const region = regions.get(`${mine.cellX},${mine.cellY}`)
     if (region === undefined) continue
@@ -95,6 +127,20 @@ export function generateStarsForEdges(
     const regionMap = coloredCounts.get(region)
     regionMap?.set(cardinal.color, (regionMap.get(cardinal.color) ?? 0) + 1)
   }
+  for (const spinner of spinnerTargets) {
+    const region = regions.get(`${spinner.cellX},${spinner.cellY}`)
+    if (region === undefined) continue
+    if (!coloredCounts.has(region)) coloredCounts.set(region, new Map())
+    const regionMap = coloredCounts.get(region)
+    regionMap?.set(spinner.color, (regionMap.get(spinner.color) ?? 0) + 1)
+  }
+  for (const ghost of ghostTargets) {
+    const region = regions.get(`${ghost.cellX},${ghost.cellY}`)
+    if (region === undefined) continue
+    if (!coloredCounts.has(region)) coloredCounts.set(region, new Map())
+    const regionMap = coloredCounts.get(region)
+    regionMap?.set(ghost.color, (regionMap.get(ghost.color) ?? 0) + 1)
+  }
 
   const symbolColors = Array.from(new Set(arrowTargets.map((arrow) => arrow.color)))
   for (const square of colorSquares) {
@@ -112,6 +158,21 @@ export function generateStarsForEdges(
       symbolColors.push(triangle.color)
     }
   }
+  for (const dot of dotTargets) {
+    if (!symbolColors.includes(dot.color)) {
+      symbolColors.push(dot.color)
+    }
+  }
+  for (const diamond of diamondTargets) {
+    if (!symbolColors.includes(diamond.color)) {
+      symbolColors.push(diamond.color)
+    }
+  }
+  for (const chevron of chevronTargets) {
+    if (!symbolColors.includes(chevron.color)) {
+      symbolColors.push(chevron.color)
+    }
+  }
   for (const mine of minesweeperTargets) {
     if (!symbolColors.includes(mine.color)) {
       symbolColors.push(mine.color)
@@ -125,6 +186,16 @@ export function generateStarsForEdges(
   for (const cardinal of cardinalTargets) {
     if (!symbolColors.includes(cardinal.color)) {
       symbolColors.push(cardinal.color)
+    }
+  }
+  for (const spinner of spinnerTargets) {
+    if (!symbolColors.includes(spinner.color)) {
+      symbolColors.push(spinner.color)
+    }
+  }
+  for (const ghost of ghostTargets) {
+    if (!symbolColors.includes(ghost.color)) {
+      symbolColors.push(ghost.color)
     }
   }
 
@@ -172,9 +243,14 @@ export function generateStarsForEdges(
       ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
       ...polyominoSymbols.map((poly) => `${poly.cellX},${poly.cellY}`),
       ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+      ...dotTargets.map((dot) => `${dot.cellX},${dot.cellY}`),
+      ...diamondTargets.map((diamond) => `${diamond.cellX},${diamond.cellY}`),
+      ...chevronTargets.map((chevron) => `${chevron.cellX},${chevron.cellY}`),
       ...minesweeperTargets.map((mine) => `${mine.cellX},${mine.cellY}`),
       ...waterDropletTargets.map((droplet) => `${droplet.cellX},${droplet.cellY}`),
       ...cardinalTargets.map((cardinal) => `${cardinal.cellX},${cardinal.cellY}`),
+      ...spinnerTargets.map((spinner) => `${spinner.cellX},${spinner.cellY}`),
+      ...ghostTargets.map((ghost) => `${ghost.cellX},${ghost.cellY}`),
     ]
   )
 
@@ -199,9 +275,14 @@ export function generateStarsForEdges(
       colorSquares.length +
       polyominoSymbols.length +
       triangleTargets.length +
+      dotTargets.length +
+      diamondTargets.length +
+      chevronTargets.length +
       minesweeperTargets.length +
       waterDropletTargets.length +
-      cardinalTargets.length >
+      cardinalTargets.length +
+      spinnerTargets.length +
+      ghostTargets.length >
     0
   const oneStarSlots = shuffledSlots.filter((slot) => slot.starsNeeded === 1)
   const placeableOneStarSlots = oneStarSlots.filter((slot) => {
@@ -290,10 +371,16 @@ export function checkStars(
   colorSquares: ColorSquare[],
   polyominoSymbols: PolyominoSymbol[],
   triangleTargets: TriangleTarget[],
+  dotTargets: DotTarget[],
+  diamondTargets: DiamondTarget[],
+  chevronTargets: ChevronTarget[],
   minesweeperTargets: MinesweeperNumberTarget[],
   waterDropletTargets: WaterDropletTarget[],
   cardinalTargets: CardinalTarget[],
-  negatorTargets: NegatorTarget[] = []
+  spinnerTargets: SpinnerTarget[] = [],
+  ghostTargets: GhostTarget[] = [],
+  negatorTargets: NegatorTarget[] = [],
+  sentinelTargets: SentinelTarget[] = []
 ) {
   const regions = buildCellRegions(usedEdges)
   const regionCounts = new Map<number, Map<string, { stars: number; symbols: number }>>()
@@ -352,6 +439,36 @@ export function checkStars(
     entry.symbols += 1
     colorMap.set(triangle.color, entry)
   }
+  for (const dot of dotTargets) {
+    const region = regions.get(`${dot.cellX},${dot.cellY}`)
+    if (region === undefined) continue
+    if (!regionCounts.has(region)) regionCounts.set(region, new Map())
+    const colorMap = regionCounts.get(region)
+    if (!colorMap) continue
+    const entry = colorMap.get(dot.color) ?? { stars: 0, symbols: 0 }
+    entry.symbols += 1
+    colorMap.set(dot.color, entry)
+  }
+  for (const diamond of diamondTargets) {
+    const region = regions.get(`${diamond.cellX},${diamond.cellY}`)
+    if (region === undefined) continue
+    if (!regionCounts.has(region)) regionCounts.set(region, new Map())
+    const colorMap = regionCounts.get(region)
+    if (!colorMap) continue
+    const entry = colorMap.get(diamond.color) ?? { stars: 0, symbols: 0 }
+    entry.symbols += 1
+    colorMap.set(diamond.color, entry)
+  }
+  for (const chevron of chevronTargets) {
+    const region = regions.get(`${chevron.cellX},${chevron.cellY}`)
+    if (region === undefined) continue
+    if (!regionCounts.has(region)) regionCounts.set(region, new Map())
+    const colorMap = regionCounts.get(region)
+    if (!colorMap) continue
+    const entry = colorMap.get(chevron.color) ?? { stars: 0, symbols: 0 }
+    entry.symbols += 1
+    colorMap.set(chevron.color, entry)
+  }
 
   for (const mine of minesweeperTargets) {
     const region = regions.get(`${mine.cellX},${mine.cellY}`)
@@ -384,6 +501,26 @@ export function checkStars(
     entry.symbols += 1
     colorMap.set(cardinal.color, entry)
   }
+  for (const spinner of spinnerTargets) {
+    const region = regions.get(`${spinner.cellX},${spinner.cellY}`)
+    if (region === undefined) continue
+    if (!regionCounts.has(region)) regionCounts.set(region, new Map())
+    const colorMap = regionCounts.get(region)
+    if (!colorMap) continue
+    const entry = colorMap.get(spinner.color) ?? { stars: 0, symbols: 0 }
+    entry.symbols += 1
+    colorMap.set(spinner.color, entry)
+  }
+  for (const ghost of ghostTargets) {
+    const region = regions.get(`${ghost.cellX},${ghost.cellY}`)
+    if (region === undefined) continue
+    if (!regionCounts.has(region)) regionCounts.set(region, new Map())
+    const colorMap = regionCounts.get(region)
+    if (!colorMap) continue
+    const entry = colorMap.get(ghost.color) ?? { stars: 0, symbols: 0 }
+    entry.symbols += 1
+    colorMap.set(ghost.color, entry)
+  }
 
   for (const negator of negatorTargets) {
     const region = regions.get(`${negator.cellX},${negator.cellY}`)
@@ -394,6 +531,16 @@ export function checkStars(
     const entry = colorMap.get(negator.color) ?? { stars: 0, symbols: 0 }
     entry.symbols += 1
     colorMap.set(negator.color, entry)
+  }
+  for (const sentinel of sentinelTargets) {
+    const region = regions.get(`${sentinel.cellX},${sentinel.cellY}`)
+    if (region === undefined) continue
+    if (!regionCounts.has(region)) regionCounts.set(region, new Map())
+    const colorMap = regionCounts.get(region)
+    if (!colorMap) continue
+    const entry = colorMap.get(sentinel.color) ?? { stars: 0, symbols: 0 }
+    entry.symbols += 1
+    colorMap.set(sentinel.color, entry)
   }
 
   for (const colorMap of regionCounts.values()) {
