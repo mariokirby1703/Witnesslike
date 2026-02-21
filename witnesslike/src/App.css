@@ -89,7 +89,7 @@
 
 .symbol-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 1.35rem;
 }
 
@@ -470,6 +470,65 @@
   stroke: none;
 }
 
+.black-hole-arm {
+  fill: none;
+  stroke-width: 0.043;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.black-hole-center {
+  stroke: none;
+}
+
+.open-pentagon-line {
+  fill: none;
+  stroke-width: 0.07;
+  stroke-linecap: butt;
+  stroke-linejoin: miter;
+}
+
+.eye-outline {
+  fill: none;
+  stroke-width: 0.052;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+
+.eye-pupil {
+  stroke: none;
+}
+
+.tally-mark-line {
+  fill: none;
+  stroke-width: 0.04;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.crystal-face {
+  stroke: none;
+}
+
+.chip-shell {
+  stroke: none;
+}
+
+.chip-hole {
+  fill: #173a57;
+  stroke: none;
+}
+
+.dice-face {
+  fill: none;
+  stroke-width: 0.03;
+  stroke-linejoin: miter;
+}
+
+.dice-pip {
+  stroke: none;
+}
+
 .spinner-arc,
 .spinner-head {
   fill: none;
@@ -562,6 +621,71 @@
 
 .tile-ghost-eye {
   fill: #101318;
+}
+
+.tile-black-hole-arm {
+  fill: none;
+  stroke: #1f232b;
+  stroke-width: 6.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tile-black-hole-center {
+  fill: #1f232b;
+  stroke: none;
+}
+
+.tile-open-pentagon-line {
+  fill: none;
+  stroke: #d88a14;
+  stroke-width: 11;
+  stroke-linecap: butt;
+  stroke-linejoin: miter;
+}
+
+.tile-eye-outline {
+  fill: none;
+  stroke: #ef4b5f;
+  stroke-width: 8.8;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+
+.tile-eye-pupil {
+  fill: #ef4b5f;
+  stroke: none;
+}
+
+.tile-tally-mark-line {
+  fill: none;
+  stroke: #f8f5ef;
+  stroke-width: 9.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tile-crystal-face {
+  stroke: none;
+}
+
+.tile-chip-shell {
+  fill: #800080;
+}
+
+.tile-chip-hole {
+  fill: var(--panel);
+}
+
+.tile-dice-face {
+  fill: none;
+  stroke: #3f7fff;
+  stroke-width: 6;
+  stroke-linejoin: miter;
+}
+
+.tile-dice-pip {
+  fill: #3f7fff;
 }
 
 .tile-water-droplet {
@@ -742,7 +866,7 @@
 
 @media (max-width: 1100px) {
   .symbol-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
   }
 }
 
@@ -767,7 +891,7 @@
   }
 
   .symbol-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
   }
 
   .board {

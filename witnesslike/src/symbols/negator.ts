@@ -14,6 +14,14 @@ import type { DiamondTarget } from './diamonds'
 import type { ChevronTarget } from './chevrons'
 import type { WaterDropletTarget } from './waterDroplet'
 import type { GhostTarget } from './ghost'
+import type { CrystalTarget } from './crystals'
+import type { ChipTarget } from './chips'
+import type { DiceTarget } from './dice'
+import type { BlackHoleTarget } from './blackHoles'
+import type { OpenPentagonTarget } from './openPentagons'
+import type { TallyMarkTarget } from './tallyMarks'
+import type { EyeTarget } from './eyes'
+import { collectFailingCrystalIndexes } from './crystals'
 import {
   COLOR_PALETTE,
   buildCellRegions,
@@ -99,6 +107,13 @@ export function generateNegatorsForEdges(
   sentinelTargets: SentinelTarget[],
   spinnerTargets: SpinnerTarget[],
   ghostTargets: GhostTarget[],
+  crystalTargets: CrystalTarget[],
+  chipTargets: ChipTarget[],
+  diceTargets: DiceTarget[],
+  blackHoleTargets: BlackHoleTarget[],
+  openPentagonTargets: OpenPentagonTarget[],
+  tallyTargets: TallyMarkTarget[],
+  eyeTargets: EyeTarget[],
   starsActive: boolean,
   preferredColors: string[],
   preferredPath?: Point[]
@@ -108,7 +123,15 @@ export function generateNegatorsForEdges(
     preferredPath ?? findBestLoopyPathByRegions(edges, rng, 180, 8) ?? findRandomPath(edges, rng)
   if (!solutionPath) return null
 
-  const regions = buildCellRegions(edgesFromPath(solutionPath))
+  const usedEdges = edgesFromPath(solutionPath)
+  const regions = buildCellRegions(usedEdges)
+  const failingCrystalRegions = new Set<number>()
+  for (const index of collectFailingCrystalIndexes(usedEdges, crystalTargets)) {
+    const crystal = crystalTargets[index]
+    if (!crystal) continue
+    const region = regions.get(`${crystal.cellX},${crystal.cellY}`)
+    if (region !== undefined) failingCrystalRegions.add(region)
+  }
   const removableKeysByRegion = new Map<number, Set<string>>()
   const allRemovableKeys = new Set<string>()
   const addRemovable = (key: string, region: number | undefined) => {
@@ -164,6 +187,27 @@ export function generateNegatorsForEdges(
   ghostTargets.forEach((target, index) => {
     addRemovable(`ghost:${index}`, regions.get(`${target.cellX},${target.cellY}`))
   })
+  crystalTargets.forEach((target, index) => {
+    addRemovable(`crystal:${index}`, regions.get(`${target.cellX},${target.cellY}`))
+  })
+  chipTargets.forEach((target, index) => {
+    addRemovable(`chip:${index}`, regions.get(`${target.cellX},${target.cellY}`))
+  })
+  diceTargets.forEach((target, index) => {
+    addRemovable(`dice:${index}`, regions.get(`${target.cellX},${target.cellY}`))
+  })
+  blackHoleTargets.forEach((target, index) => {
+    addRemovable(`black-hole:${index}`, regions.get(`${target.cellX},${target.cellY}`))
+  })
+  openPentagonTargets.forEach((target, index) => {
+    addRemovable(`open-pentagon:${index}`, regions.get(`${target.cellX},${target.cellY}`))
+  })
+  tallyTargets.forEach((target, index) => {
+    addRemovable(`tally-mark:${index}`, regions.get(`${target.cellX},${target.cellY}`))
+  })
+  eyeTargets.forEach((target, index) => {
+    addRemovable(`eye:${index}`, regions.get(`${target.cellX},${target.cellY}`))
+  })
   if (allRemovableKeys.size === 0) return null
 
   const availableCells = shuffle(
@@ -177,10 +221,23 @@ export function generateNegatorsForEdges(
     rng
   )
   if (availableCells.length === 0) return null
+  const prioritizedCells = failingCrystalRegions.size === 0
+    ? availableCells
+    : [
+        ...availableCells.filter((cell) => {
+          const region = regions.get(`${cell.x},${cell.y}`)
+          return region !== undefined && failingCrystalRegions.has(region)
+        }),
+        ...availableCells.filter((cell) => {
+          const region = regions.get(`${cell.x},${cell.y}`)
+          return region === undefined || !failingCrystalRegions.has(region)
+        }),
+      ]
 
   const wantsTwo =
-    availableCells.length >= 2 &&
+    prioritizedCells.length >= 2 &&
     allRemovableKeys.size >= 2 &&
+    crystalTargets.length === 0 &&
     rng() < 0.05
   const targetCount = wantsTwo ? 2 : 1
 
@@ -212,14 +269,17 @@ export function generateNegatorsForEdges(
 
   const pickNegatorCells = () => {
     if (targetCount === 1) {
-      return canAssignDistinctRemovals([availableCells[0]]) ? [availableCells[0]] : null
+      for (const cell of prioritizedCells) {
+        if (canAssignDistinctRemovals([cell])) return [cell]
+      }
+      return null
     }
     const differentRegionPairs: Array<Array<{ x: number; y: number }>> = []
     const sameRegionPairs: Array<Array<{ x: number; y: number }>> = []
-    for (let i = 0; i < availableCells.length; i += 1) {
-      for (let j = i + 1; j < availableCells.length; j += 1) {
-        const first = availableCells[i]
-        const second = availableCells[j]
+    for (let i = 0; i < prioritizedCells.length; i += 1) {
+      for (let j = i + 1; j < prioritizedCells.length; j += 1) {
+        const first = prioritizedCells[i]
+        const second = prioritizedCells[j]
         const firstRegion = regions.get(`${first.x},${first.y}`)
         const secondRegion = regions.get(`${second.x},${second.y}`)
         if (firstRegion !== undefined && secondRegion !== undefined && firstRegion !== secondRegion) {

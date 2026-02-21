@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import './App.css'
 import HomePage from './HomePage'
 import type { Tile, TileKind } from './HomePage'
@@ -55,38 +55,70 @@ const ACTIVE_SYMBOLS: Array<{ label: string; description: string; kind: TileKind
     kind: 'chevrons',
   },
   {
+    label: 'Crystals',
+    description:
+      'Each crystal must be alone in its region, and all crystal regions must match in shape (rotations/flips count).',
+    kind: 'crystals',
+  },
+  {
+    label: 'Chips',
+    description:
+      'For each chip color in a region, there must be at least two symbols of that color, and they must line up in one row or one column.',
+    kind: 'chips',
+  },
+  {
+    label: 'Dice',
+    description:
+      'In each region with dice, the region area must equal the sum of all dice pips in that region.',
+    kind: 'dice',
+  },
+  {
+    label: 'Black Holes',
+    description:
+      'The path may not touch any side of their cell (corners are allowed). If a same-color symbol shares the region, the puzzle fails.',
+    kind: 'black-holes',
+  },
+  {
+    label: 'Open Pentagons',
+    description:
+      'Same-color open pentagons must be linked by exactly one cell path that avoids line crossings and symbols of other colors.',
+    kind: 'open-pentagons',
+  },
+  {
+    label: 'Tally Marks',
+    description:
+      'Each tally mark equals the outline side count of its region (grouped as 1-4 vertical marks and a slash on every 5th).',
+    kind: 'tally-marks',
+  },
+  {
+    label: 'Eyes',
+    description:
+      'At least one line must exist in the facing direction; the first such segment merges both adjacent regions for other symbol checks.',
+    kind: 'eyes',
+  },
+  {
     label: 'Ghost',
     description: 'Each ghost needs its own region, and the total region count must equal ghost count.',
     kind: 'ghost',
   },
 ]
 
-const TOTAL_SYMBOL_FIELDS = 20
-
 const TILES: Tile[] = (() => {
-  const activeTiles: Tile[] = ACTIVE_SYMBOLS.map((symbol, index) => ({
+  return ACTIVE_SYMBOLS.map((symbol, index) => ({
     id: index,
     label: symbol.label,
     description: symbol.description,
     kind: symbol.kind,
     active: true,
   }))
-
-  const placeholderCount = Math.max(0, TOTAL_SYMBOL_FIELDS - activeTiles.length)
-  const placeholders: Tile[] = Array.from({ length: placeholderCount }, (_, placeholderIndex) => ({
-    id: activeTiles.length + placeholderIndex,
-    label: 'Placeholder',
-    description: 'Coming soon.',
-    kind: 'placeholder',
-    active: false,
-  }))
-
-  return [...activeTiles, ...placeholders]
 })()
 
 const NEGATIVE_TILE_ID = TILES.find((tile) => tile.kind === 'negative-polyomino')?.id ?? -1
 const ROTATED_NEGATIVE_TILE_ID = TILES.find((tile) => tile.kind === 'rotated-negative-polyomino')?.id ?? -1
 const NEGATOR_TILE_ID = TILES.find((tile) => tile.kind === 'negator')?.id ?? -1
+const CRYSTAL_TILE_ID = TILES.find((tile) => tile.kind === 'crystals')?.id ?? -1
+const GHOST_TILE_ID = TILES.find((tile) => tile.kind === 'ghost')?.id ?? -1
+const TALLY_TILE_ID = TILES.find((tile) => tile.kind === 'tally-marks')?.id ?? -1
 
 function hasPositivePolySelection(ids: number[]) {
   return TILES.some(
@@ -101,14 +133,36 @@ function hasNegatorPrereqSelection(ids: number[]) {
     (tile) =>
       ids.includes(tile.id) &&
       tile.kind !== 'gap-line' &&
-      tile.kind !== 'negator' &&
-      tile.kind !== 'placeholder'
+      tile.kind !== 'negator'
   )
+}
+
+function hasGhostAndCrystalSelection(ids: number[]) {
+  return ids.includes(CRYSTAL_TILE_ID) && ids.includes(GHOST_TILE_ID)
+}
+
+function hasCrystalAndTallySelection(ids: number[]) {
+  return ids.includes(CRYSTAL_TILE_ID) && ids.includes(TALLY_TILE_ID)
+}
+
+function hasNegatorBlockedCombo(ids: number[]) {
+  return hasGhostAndCrystalSelection(ids) || hasCrystalAndTallySelection(ids)
+}
+
+function enforceNegatorComboRule(ids: number[]) {
+  if (!hasNegatorBlockedCombo(ids)) return ids
+  return ids.filter((id) => id !== NEGATOR_TILE_ID)
 }
 
 function App() {
   const [view, setView] = useState<View>('home')
   const [selectedIds, setSelectedIds] = useState<number[]>([])
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      const next = enforceNegatorComboRule(prev)
+      return next.length === prev.length ? prev : next
+    })
+  }, [selectedIds])
   const selectedTiles = TILES.filter((tile) => selectedIds.includes(tile.id))
 
   if (view === 'home') {
@@ -129,7 +183,7 @@ function App() {
               if (tile.kind !== 'negator' && !hasNegatorPrereqSelection(next)) {
                 next = next.filter((id) => id !== NEGATOR_TILE_ID)
               }
-              return next
+              return enforceNegatorComboRule(next)
             }
             if (
               (tile.kind === 'negative-polyomino' || tile.kind === 'rotated-negative-polyomino') &&
@@ -143,8 +197,11 @@ function App() {
             ) {
               return prev
             }
+            if (tile.kind === 'negator' && hasNegatorBlockedCombo(prev)) {
+              return prev
+            }
             if (prev.length >= 4) return prev
-            return [...prev, tile.id]
+            return enforceNegatorComboRule([...prev, tile.id])
           })
         }}
         onStart={() => {

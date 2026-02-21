@@ -13,6 +13,12 @@ import type { DiamondTarget } from './diamonds'
 import type { ChevronTarget } from './chevrons'
 import type { WaterDropletTarget } from './waterDroplet'
 import type { GhostTarget } from './ghost'
+import type { CrystalTarget } from './crystals'
+import type { ChipTarget } from './chips'
+import type { DiceTarget } from './dice'
+import type { BlackHoleTarget } from './blackHoles'
+import type { TallyMarkTarget } from './tallyMarks'
+import type { EyeTarget } from './eyes'
 
 export type StarTarget = {
   cellX: number
@@ -36,6 +42,12 @@ export function generateStarsForEdges(
   cardinalTargets: CardinalTarget[],
   spinnerTargets: SpinnerTarget[],
   ghostTargets: GhostTarget[],
+  crystalTargets: CrystalTarget[],
+  chipTargets: ChipTarget[],
+  diceTargets: DiceTarget[],
+  blackHoleTargets: BlackHoleTarget[],
+  tallyTargets: TallyMarkTarget[] = [],
+  eyeTargets: EyeTarget[] = [],
   allowNegatorOrphan = false,
   preferredPath?: { x: number; y: number }[],
   selectedSymbolCount = 3
@@ -141,6 +153,48 @@ export function generateStarsForEdges(
     const regionMap = coloredCounts.get(region)
     regionMap?.set(ghost.color, (regionMap.get(ghost.color) ?? 0) + 1)
   }
+  for (const crystal of crystalTargets) {
+    const region = regions.get(`${crystal.cellX},${crystal.cellY}`)
+    if (region === undefined) continue
+    if (!coloredCounts.has(region)) coloredCounts.set(region, new Map())
+    const regionMap = coloredCounts.get(region)
+    regionMap?.set(crystal.color, (regionMap.get(crystal.color) ?? 0) + 1)
+  }
+  for (const chip of chipTargets) {
+    const region = regions.get(`${chip.cellX},${chip.cellY}`)
+    if (region === undefined) continue
+    if (!coloredCounts.has(region)) coloredCounts.set(region, new Map())
+    const regionMap = coloredCounts.get(region)
+    regionMap?.set(chip.color, (regionMap.get(chip.color) ?? 0) + 1)
+  }
+  for (const dice of diceTargets) {
+    const region = regions.get(`${dice.cellX},${dice.cellY}`)
+    if (region === undefined) continue
+    if (!coloredCounts.has(region)) coloredCounts.set(region, new Map())
+    const regionMap = coloredCounts.get(region)
+    regionMap?.set(dice.color, (regionMap.get(dice.color) ?? 0) + 1)
+  }
+  for (const blackHole of blackHoleTargets) {
+    const region = regions.get(`${blackHole.cellX},${blackHole.cellY}`)
+    if (region === undefined) continue
+    if (!coloredCounts.has(region)) coloredCounts.set(region, new Map())
+    const regionMap = coloredCounts.get(region)
+    regionMap?.set(blackHole.color, (regionMap.get(blackHole.color) ?? 0) + 1)
+  }
+  for (const tally of tallyTargets) {
+    const region = regions.get(`${tally.cellX},${tally.cellY}`)
+    if (region === undefined) continue
+    if (!coloredCounts.has(region)) coloredCounts.set(region, new Map())
+    const regionMap = coloredCounts.get(region)
+    regionMap?.set(tally.color, (regionMap.get(tally.color) ?? 0) + 1)
+  }
+  for (const eye of eyeTargets) {
+    const region = regions.get(`${eye.cellX},${eye.cellY}`)
+    if (region === undefined) continue
+    if (!coloredCounts.has(region)) coloredCounts.set(region, new Map())
+    const regionMap = coloredCounts.get(region)
+    regionMap?.set(eye.color, (regionMap.get(eye.color) ?? 0) + 1)
+  }
 
   const symbolColors = Array.from(new Set(arrowTargets.map((arrow) => arrow.color)))
   for (const square of colorSquares) {
@@ -198,6 +252,36 @@ export function generateStarsForEdges(
       symbolColors.push(ghost.color)
     }
   }
+  for (const crystal of crystalTargets) {
+    if (!symbolColors.includes(crystal.color)) {
+      symbolColors.push(crystal.color)
+    }
+  }
+  for (const chip of chipTargets) {
+    if (!symbolColors.includes(chip.color)) {
+      symbolColors.push(chip.color)
+    }
+  }
+  for (const dice of diceTargets) {
+    if (!symbolColors.includes(dice.color)) {
+      symbolColors.push(dice.color)
+    }
+  }
+  for (const blackHole of blackHoleTargets) {
+    if (!symbolColors.includes(blackHole.color)) {
+      symbolColors.push(blackHole.color)
+    }
+  }
+  for (const tally of tallyTargets) {
+    if (!symbolColors.includes(tally.color)) {
+      symbolColors.push(tally.color)
+    }
+  }
+  for (const eye of eyeTargets) {
+    if (!symbolColors.includes(eye.color)) {
+      symbolColors.push(eye.color)
+    }
+  }
 
   const desiredColorCount = Math.min(3, Math.max(2, symbolColors.length, 2 + randInt(rng, 2)))
   const palette = [...symbolColors]
@@ -251,6 +335,12 @@ export function generateStarsForEdges(
       ...cardinalTargets.map((cardinal) => `${cardinal.cellX},${cardinal.cellY}`),
       ...spinnerTargets.map((spinner) => `${spinner.cellX},${spinner.cellY}`),
       ...ghostTargets.map((ghost) => `${ghost.cellX},${ghost.cellY}`),
+      ...crystalTargets.map((crystal) => `${crystal.cellX},${crystal.cellY}`),
+      ...chipTargets.map((chip) => `${chip.cellX},${chip.cellY}`),
+      ...diceTargets.map((dice) => `${dice.cellX},${dice.cellY}`),
+      ...blackHoleTargets.map((blackHole) => `${blackHole.cellX},${blackHole.cellY}`),
+      ...tallyTargets.map((tally) => `${tally.cellX},${tally.cellY}`),
+      ...eyeTargets.map((eye) => `${eye.cellX},${eye.cellY}`),
     ]
   )
 
@@ -282,7 +372,13 @@ export function generateStarsForEdges(
       waterDropletTargets.length +
       cardinalTargets.length +
       spinnerTargets.length +
-      ghostTargets.length >
+      ghostTargets.length +
+      crystalTargets.length +
+      chipTargets.length +
+      diceTargets.length +
+      blackHoleTargets.length +
+      tallyTargets.length +
+      eyeTargets.length >
     0
   const oneStarSlots = shuffledSlots.filter((slot) => slot.starsNeeded === 1)
   const placeableOneStarSlots = oneStarSlots.filter((slot) => {
@@ -379,6 +475,12 @@ export function checkStars(
   cardinalTargets: CardinalTarget[],
   spinnerTargets: SpinnerTarget[] = [],
   ghostTargets: GhostTarget[] = [],
+  crystalTargets: CrystalTarget[] = [],
+  chipTargets: ChipTarget[] = [],
+  diceTargets: DiceTarget[] = [],
+  blackHoleTargets: BlackHoleTarget[] = [],
+  tallyTargets: TallyMarkTarget[] = [],
+  eyeTargets: EyeTarget[] = [],
   negatorTargets: NegatorTarget[] = [],
   sentinelTargets: SentinelTarget[] = []
 ) {
@@ -520,6 +622,66 @@ export function checkStars(
     const entry = colorMap.get(ghost.color) ?? { stars: 0, symbols: 0 }
     entry.symbols += 1
     colorMap.set(ghost.color, entry)
+  }
+  for (const crystal of crystalTargets) {
+    const region = regions.get(`${crystal.cellX},${crystal.cellY}`)
+    if (region === undefined) continue
+    if (!regionCounts.has(region)) regionCounts.set(region, new Map())
+    const colorMap = regionCounts.get(region)
+    if (!colorMap) continue
+    const entry = colorMap.get(crystal.color) ?? { stars: 0, symbols: 0 }
+    entry.symbols += 1
+    colorMap.set(crystal.color, entry)
+  }
+  for (const chip of chipTargets) {
+    const region = regions.get(`${chip.cellX},${chip.cellY}`)
+    if (region === undefined) continue
+    if (!regionCounts.has(region)) regionCounts.set(region, new Map())
+    const colorMap = regionCounts.get(region)
+    if (!colorMap) continue
+    const entry = colorMap.get(chip.color) ?? { stars: 0, symbols: 0 }
+    entry.symbols += 1
+    colorMap.set(chip.color, entry)
+  }
+  for (const dice of diceTargets) {
+    const region = regions.get(`${dice.cellX},${dice.cellY}`)
+    if (region === undefined) continue
+    if (!regionCounts.has(region)) regionCounts.set(region, new Map())
+    const colorMap = regionCounts.get(region)
+    if (!colorMap) continue
+    const entry = colorMap.get(dice.color) ?? { stars: 0, symbols: 0 }
+    entry.symbols += 1
+    colorMap.set(dice.color, entry)
+  }
+  for (const blackHole of blackHoleTargets) {
+    const region = regions.get(`${blackHole.cellX},${blackHole.cellY}`)
+    if (region === undefined) continue
+    if (!regionCounts.has(region)) regionCounts.set(region, new Map())
+    const colorMap = regionCounts.get(region)
+    if (!colorMap) continue
+    const entry = colorMap.get(blackHole.color) ?? { stars: 0, symbols: 0 }
+    entry.symbols += 1
+    colorMap.set(blackHole.color, entry)
+  }
+  for (const tally of tallyTargets) {
+    const region = regions.get(`${tally.cellX},${tally.cellY}`)
+    if (region === undefined) continue
+    if (!regionCounts.has(region)) regionCounts.set(region, new Map())
+    const colorMap = regionCounts.get(region)
+    if (!colorMap) continue
+    const entry = colorMap.get(tally.color) ?? { stars: 0, symbols: 0 }
+    entry.symbols += 1
+    colorMap.set(tally.color, entry)
+  }
+  for (const eye of eyeTargets) {
+    const region = regions.get(`${eye.cellX},${eye.cellY}`)
+    if (region === undefined) continue
+    if (!regionCounts.has(region)) regionCounts.set(region, new Map())
+    const colorMap = regionCounts.get(region)
+    if (!colorMap) continue
+    const entry = colorMap.get(eye.color) ?? { stars: 0, symbols: 0 }
+    entry.symbols += 1
+    colorMap.set(eye.color, entry)
   }
 
   for (const negator of negatorTargets) {

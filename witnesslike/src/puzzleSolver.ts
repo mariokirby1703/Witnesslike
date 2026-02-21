@@ -33,6 +33,20 @@ import { checkWaterDroplets, isWaterDropletContained } from './symbols/waterDrop
 import type { WaterDropletTarget } from './symbols/waterDroplet'
 import { checkGhosts, collectFailingGhostIndexes } from './symbols/ghost'
 import type { GhostTarget } from './symbols/ghost'
+import { checkCrystals, collectFailingCrystalIndexes } from './symbols/crystals'
+import type { CrystalTarget } from './symbols/crystals'
+import { checkChips, collectFailingChipIndexes } from './symbols/chips'
+import type { ChipTarget } from './symbols/chips'
+import { checkDice, collectFailingDiceIndexes } from './symbols/dice'
+import type { DiceTarget } from './symbols/dice'
+import { checkBlackHoles, collectFailingBlackHoleIndexes } from './symbols/blackHoles'
+import type { BlackHoleTarget } from './symbols/blackHoles'
+import { checkOpenPentagons, collectFailingOpenPentagonIndexes } from './symbols/openPentagons'
+import type { OpenPentagonTarget } from './symbols/openPentagons'
+import { checkTallyMarks, collectFailingTallyMarkIndexes } from './symbols/tallyMarks'
+import type { TallyMarkTarget } from './symbols/tallyMarks'
+import { checkEyes, resolveEyeEffects } from './symbols/eyes'
+import type { EyeTarget } from './symbols/eyes'
 
 type SolverSymbols = {
   arrowTargets: ArrowTarget[]
@@ -47,6 +61,13 @@ type SolverSymbols = {
   cardinalTargets: CardinalTarget[]
   spinnerTargets: SpinnerTarget[]
   ghostTargets: GhostTarget[]
+  crystalTargets: CrystalTarget[]
+  chipTargets: ChipTarget[]
+  diceTargets: DiceTarget[]
+  blackHoleTargets: BlackHoleTarget[]
+  openPentagonTargets: OpenPentagonTarget[]
+  tallyTargets: TallyMarkTarget[]
+  eyeTargets: EyeTarget[]
   polyominoSymbols: PolyominoSymbol[]
   hexTargets: HexTarget[]
   negatorTargets: NegatorTarget[]
@@ -67,6 +88,13 @@ export type EliminatedSymbolRef =
   | { kind: 'spinner'; index: number }
   | { kind: 'sentinel'; index: number }
   | { kind: 'ghost'; index: number }
+  | { kind: 'crystal'; index: number }
+  | { kind: 'chip'; index: number }
+  | { kind: 'dice'; index: number }
+  | { kind: 'black-hole'; index: number }
+  | { kind: 'open-pentagon'; index: number }
+  | { kind: 'tally-mark'; index: number }
+  | { kind: 'eye'; index: number }
   | { kind: 'polyomino'; index: number }
   | { kind: 'hexagon'; index: number }
 
@@ -165,6 +193,11 @@ function buildFailingSymbolKeySet(
   symbols: SolverSymbols
 ) {
   const failing = new Set<string>()
+  const eyeEffects = resolveEyeEffects(usedEdges, symbols.eyeTargets)
+  const effectiveUsedEdges = eyeEffects.effectiveUsedEdges
+  for (const index of eyeEffects.failingIndexes) {
+    failing.add(`eye:${index}`)
+  }
 
   symbols.arrowTargets.forEach((target, index) => {
     if (countArrowCrossings(path, target) !== target.count) {
@@ -213,7 +246,7 @@ function buildFailingSymbolKeySet(
     }
   })
 
-  const regions = buildCellRegions(usedEdges)
+  const regions = buildCellRegions(effectiveUsedEdges)
   symbols.chevronTargets.forEach((target, index) => {
     if (countChevronRegionCells(regions, target) !== target.count) {
       failing.add(`chevron:${index}`)
@@ -241,7 +274,69 @@ function buildFailingSymbolKeySet(
   for (const index of collectFailingGhostIndexes(usedEdges, symbols.ghostTargets)) {
     failing.add(`ghost:${index}`)
   }
-  for (const index of collectFailingSentinelIndexes(usedEdges, {
+  for (const index of collectFailingCrystalIndexes(effectiveUsedEdges, symbols.crystalTargets)) {
+    failing.add(`crystal:${index}`)
+  }
+  for (const index of collectFailingChipIndexes(effectiveUsedEdges, {
+    arrowTargets: symbols.arrowTargets,
+    colorSquares: symbols.colorSquares,
+    starTargets: symbols.starTargets,
+    triangleTargets: symbols.triangleTargets,
+    dotTargets: symbols.dotTargets,
+    diamondTargets: symbols.diamondTargets,
+    chevronTargets: symbols.chevronTargets,
+    minesweeperTargets: symbols.minesweeperTargets,
+    waterDropletTargets: symbols.waterDropletTargets,
+    cardinalTargets: symbols.cardinalTargets,
+    spinnerTargets: symbols.spinnerTargets,
+    sentinelTargets: symbols.sentinelTargets,
+    ghostTargets: symbols.ghostTargets,
+    crystalTargets: symbols.crystalTargets,
+    blackHoleTargets: symbols.blackHoleTargets,
+    diceTargets: symbols.diceTargets,
+    polyominoSymbols: symbols.polyominoSymbols,
+    negatorTargets: symbols.negatorTargets,
+    chipTargets: symbols.chipTargets,
+    tallyTargets: symbols.tallyTargets,
+    eyeTargets: symbols.eyeTargets,
+  })) {
+    failing.add(`chip:${index}`)
+  }
+  for (const index of collectFailingDiceIndexes(effectiveUsedEdges, symbols.diceTargets)) {
+    failing.add(`dice:${index}`)
+  }
+  for (const index of collectFailingBlackHoleIndexes(effectiveUsedEdges, {
+    arrowTargets: symbols.arrowTargets,
+    colorSquares: symbols.colorSquares,
+    starTargets: symbols.starTargets,
+    triangleTargets: symbols.triangleTargets,
+    dotTargets: symbols.dotTargets,
+    diamondTargets: symbols.diamondTargets,
+    chevronTargets: symbols.chevronTargets,
+    minesweeperTargets: symbols.minesweeperTargets,
+    waterDropletTargets: symbols.waterDropletTargets,
+    cardinalTargets: symbols.cardinalTargets,
+    spinnerTargets: symbols.spinnerTargets,
+    sentinelTargets: symbols.sentinelTargets,
+    ghostTargets: symbols.ghostTargets,
+    crystalTargets: symbols.crystalTargets,
+    chipTargets: symbols.chipTargets,
+    diceTargets: symbols.diceTargets,
+    polyominoSymbols: symbols.polyominoSymbols,
+    negatorTargets: symbols.negatorTargets,
+    blackHoleTargets: symbols.blackHoleTargets,
+    tallyTargets: symbols.tallyTargets,
+    eyeTargets: symbols.eyeTargets,
+  })) {
+    failing.add(`black-hole:${index}`)
+  }
+  for (const index of collectFailingOpenPentagonIndexes(effectiveUsedEdges, symbols)) {
+    failing.add(`open-pentagon:${index}`)
+  }
+  for (const index of collectFailingTallyMarkIndexes(effectiveUsedEdges, symbols.tallyTargets)) {
+    failing.add(`tally-mark:${index}`)
+  }
+  for (const index of collectFailingSentinelIndexes(effectiveUsedEdges, {
     arrowTargets: symbols.arrowTargets,
     colorSquares: symbols.colorSquares,
     starTargets: symbols.starTargets,
@@ -254,6 +349,13 @@ function buildFailingSymbolKeySet(
     cardinalTargets: symbols.cardinalTargets,
     spinnerTargets: symbols.spinnerTargets,
     ghostTargets: symbols.ghostTargets,
+    crystalTargets: symbols.crystalTargets,
+    chipTargets: symbols.chipTargets,
+    diceTargets: symbols.diceTargets,
+    blackHoleTargets: symbols.blackHoleTargets,
+    openPentagonTargets: symbols.openPentagonTargets,
+    tallyTargets: symbols.tallyTargets,
+    eyeTargets: symbols.eyeTargets,
     polyominoSymbols: symbols.polyominoSymbols,
     negatorTargets: symbols.negatorTargets,
     hexTargets: symbols.hexTargets,
@@ -318,6 +420,21 @@ function buildFailingSymbolKeySet(
   symbols.cardinalTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
   symbols.spinnerTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
   symbols.ghostTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
+  symbols.crystalTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
+  symbols.chipTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
+  symbols.diceTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
+  symbols.blackHoleTargets.forEach((target) =>
+    addColoredSymbol(target.cellX, target.cellY, target.color)
+  )
+  symbols.openPentagonTargets.forEach((target) =>
+    addColoredSymbol(target.cellX, target.cellY, target.color)
+  )
+  symbols.tallyTargets.forEach((target) =>
+    addColoredSymbol(target.cellX, target.cellY, target.color)
+  )
+  symbols.eyeTargets.forEach((target) =>
+    addColoredSymbol(target.cellX, target.cellY, target.color)
+  )
   symbols.polyominoSymbols.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
   symbols.negatorTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
   symbols.sentinelTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
@@ -341,6 +458,9 @@ function satisfiesBaseConstraints(
   activeKinds: TileKind[],
   symbols: SolverSymbols
 ) {
+  const eyeEffects = resolveEyeEffects(usedEdges, symbols.eyeTargets)
+  const effectiveUsedEdges = eyeEffects.effectiveUsedEdges
+
   if (activeKinds.includes('arrows')) {
     if (!checkArrows(path, symbols.arrowTargets)) return false
   }
@@ -349,13 +469,17 @@ function satisfiesBaseConstraints(
     if (!checkHexTargets(path, usedEdges, symbols.hexTargets)) return false
   }
 
+  if (activeKinds.includes('eyes')) {
+    if (!checkEyes(usedEdges, symbols.eyeTargets)) return false
+  }
+
   if (activeKinds.includes('color-squares')) {
-    if (!checkColorSquares(usedEdges, symbols.colorSquares)) return false
+    if (!checkColorSquares(effectiveUsedEdges, symbols.colorSquares)) return false
   }
 
   if (activeKinds.includes('stars')) {
     if (!checkStars(
-      usedEdges,
+      effectiveUsedEdges,
       symbols.starTargets,
       symbols.arrowTargets,
       symbols.colorSquares,
@@ -369,6 +493,12 @@ function satisfiesBaseConstraints(
       symbols.cardinalTargets,
       symbols.spinnerTargets,
       symbols.ghostTargets,
+      symbols.crystalTargets,
+      symbols.chipTargets,
+      symbols.diceTargets,
+      symbols.blackHoleTargets,
+      symbols.tallyTargets,
+      symbols.eyeTargets,
       symbols.negatorTargets,
       symbols.sentinelTargets
     )) {
@@ -389,15 +519,15 @@ function satisfiesBaseConstraints(
   }
 
   if (activeKinds.includes('chevrons')) {
-    if (!checkChevrons(usedEdges, symbols.chevronTargets)) return false
+    if (!checkChevrons(effectiveUsedEdges, symbols.chevronTargets)) return false
   }
 
   if (activeKinds.includes('minesweeper-numbers')) {
-    if (!checkMinesweeperNumbers(usedEdges, symbols.minesweeperTargets)) return false
+    if (!checkMinesweeperNumbers(effectiveUsedEdges, symbols.minesweeperTargets)) return false
   }
 
   if (activeKinds.includes('water-droplet')) {
-    if (!checkWaterDroplets(usedEdges, symbols.waterDropletTargets)) return false
+    if (!checkWaterDroplets(effectiveUsedEdges, symbols.waterDropletTargets)) return false
   }
 
   if (activeKinds.includes('cardinal')) {
@@ -409,11 +539,83 @@ function satisfiesBaseConstraints(
   }
 
   if (activeKinds.includes('ghost')) {
-    if (!checkGhosts(usedEdges, symbols.ghostTargets)) return false
+    if (!checkGhosts(effectiveUsedEdges, symbols.ghostTargets)) return false
+  }
+
+  if (activeKinds.includes('crystals')) {
+    if (!checkCrystals(effectiveUsedEdges, symbols.crystalTargets)) return false
+  }
+
+  if (activeKinds.includes('chips')) {
+    if (!checkChips(effectiveUsedEdges, {
+      arrowTargets: symbols.arrowTargets,
+      colorSquares: symbols.colorSquares,
+      starTargets: symbols.starTargets,
+      triangleTargets: symbols.triangleTargets,
+      dotTargets: symbols.dotTargets,
+      diamondTargets: symbols.diamondTargets,
+      chevronTargets: symbols.chevronTargets,
+      minesweeperTargets: symbols.minesweeperTargets,
+      waterDropletTargets: symbols.waterDropletTargets,
+      cardinalTargets: symbols.cardinalTargets,
+      spinnerTargets: symbols.spinnerTargets,
+      sentinelTargets: symbols.sentinelTargets,
+      ghostTargets: symbols.ghostTargets,
+      crystalTargets: symbols.crystalTargets,
+      blackHoleTargets: symbols.blackHoleTargets,
+      diceTargets: symbols.diceTargets,
+      polyominoSymbols: symbols.polyominoSymbols,
+      negatorTargets: symbols.negatorTargets,
+      chipTargets: symbols.chipTargets,
+      tallyTargets: symbols.tallyTargets,
+      eyeTargets: symbols.eyeTargets,
+    })) {
+      return false
+    }
+  }
+
+  if (activeKinds.includes('dice')) {
+    if (!checkDice(effectiveUsedEdges, symbols.diceTargets)) return false
+  }
+
+  if (activeKinds.includes('black-holes')) {
+    if (!checkBlackHoles(effectiveUsedEdges, {
+      arrowTargets: symbols.arrowTargets,
+      colorSquares: symbols.colorSquares,
+      starTargets: symbols.starTargets,
+      triangleTargets: symbols.triangleTargets,
+      dotTargets: symbols.dotTargets,
+      diamondTargets: symbols.diamondTargets,
+      chevronTargets: symbols.chevronTargets,
+      minesweeperTargets: symbols.minesweeperTargets,
+      waterDropletTargets: symbols.waterDropletTargets,
+      cardinalTargets: symbols.cardinalTargets,
+      spinnerTargets: symbols.spinnerTargets,
+      sentinelTargets: symbols.sentinelTargets,
+      ghostTargets: symbols.ghostTargets,
+      crystalTargets: symbols.crystalTargets,
+      chipTargets: symbols.chipTargets,
+      diceTargets: symbols.diceTargets,
+      polyominoSymbols: symbols.polyominoSymbols,
+      negatorTargets: symbols.negatorTargets,
+      blackHoleTargets: symbols.blackHoleTargets,
+      tallyTargets: symbols.tallyTargets,
+      eyeTargets: symbols.eyeTargets,
+    })) {
+      return false
+    }
+  }
+
+  if (activeKinds.includes('open-pentagons')) {
+    if (!checkOpenPentagons(effectiveUsedEdges, symbols)) return false
+  }
+
+  if (activeKinds.includes('tally-marks')) {
+    if (!checkTallyMarks(effectiveUsedEdges, symbols.tallyTargets)) return false
   }
 
   if (activeKinds.includes('sentinel')) {
-    if (!checkSentinels(usedEdges, {
+    if (!checkSentinels(effectiveUsedEdges, {
       arrowTargets: symbols.arrowTargets,
       colorSquares: symbols.colorSquares,
       starTargets: symbols.starTargets,
@@ -426,6 +628,13 @@ function satisfiesBaseConstraints(
       cardinalTargets: symbols.cardinalTargets,
       spinnerTargets: symbols.spinnerTargets,
       ghostTargets: symbols.ghostTargets,
+      crystalTargets: symbols.crystalTargets,
+      chipTargets: symbols.chipTargets,
+      diceTargets: symbols.diceTargets,
+      blackHoleTargets: symbols.blackHoleTargets,
+      openPentagonTargets: symbols.openPentagonTargets,
+      tallyTargets: symbols.tallyTargets,
+      eyeTargets: symbols.eyeTargets,
       polyominoSymbols: symbols.polyominoSymbols,
       negatorTargets: symbols.negatorTargets,
       hexTargets: symbols.hexTargets,
@@ -441,7 +650,7 @@ function satisfiesBaseConstraints(
     activeKinds.includes('negative-polyomino') ||
     activeKinds.includes('rotated-negative-polyomino')
   ) {
-    if (!checkPolyominoes(usedEdges, symbols.polyominoSymbols)) return false
+    if (!checkPolyominoes(effectiveUsedEdges, symbols.polyominoSymbols)) return false
   }
 
   return true
@@ -466,7 +675,9 @@ export function evaluatePathConstraints(
     return { ok: false, eliminatedNegatorIndexes: [], eliminatedSymbols: [] }
   }
 
-  const regions = buildCellRegions(usedEdges)
+  const eyeEffects = resolveEyeEffects(usedEdges, symbols.eyeTargets)
+  const effectiveUsedEdges = eyeEffects.effectiveUsedEdges
+  const regions = buildCellRegions(effectiveUsedEdges)
   const removableSymbols: Array<NegationTargetRef & { region: number }> = []
   const failingKeys = buildFailingSymbolKeySet(path, usedEdges, symbols)
   const candidateKindPriority: Record<NegationTargetRef['kind'], number> = {
@@ -483,9 +694,16 @@ export function evaluatePathConstraints(
     spinner: 10,
     sentinel: 11,
     ghost: 12,
-    'color-square': 13,
-    hexagon: 14,
-    polyomino: 15,
+    crystal: 13,
+    chip: 14,
+    dice: 15,
+    'black-hole': 16,
+    'open-pentagon': 17,
+    eye: 18,
+    'tally-mark': 19,
+    'color-square': 20,
+    hexagon: 21,
+    polyomino: 22,
   }
 
   symbols.arrowTargets.forEach((target, index) => {
@@ -547,6 +765,41 @@ export function evaluatePathConstraints(
     const region = regions.get(`${target.cellX},${target.cellY}`)
     if (region === undefined) return
     removableSymbols.push({ kind: 'ghost', index, region })
+  })
+  symbols.crystalTargets.forEach((target, index) => {
+    const region = regions.get(`${target.cellX},${target.cellY}`)
+    if (region === undefined) return
+    removableSymbols.push({ kind: 'crystal', index, region })
+  })
+  symbols.chipTargets.forEach((target, index) => {
+    const region = regions.get(`${target.cellX},${target.cellY}`)
+    if (region === undefined) return
+    removableSymbols.push({ kind: 'chip', index, region })
+  })
+  symbols.diceTargets.forEach((target, index) => {
+    const region = regions.get(`${target.cellX},${target.cellY}`)
+    if (region === undefined) return
+    removableSymbols.push({ kind: 'dice', index, region })
+  })
+  symbols.blackHoleTargets.forEach((target, index) => {
+    const region = regions.get(`${target.cellX},${target.cellY}`)
+    if (region === undefined) return
+    removableSymbols.push({ kind: 'black-hole', index, region })
+  })
+  symbols.openPentagonTargets.forEach((target, index) => {
+    const region = regions.get(`${target.cellX},${target.cellY}`)
+    if (region === undefined) return
+    removableSymbols.push({ kind: 'open-pentagon', index, region })
+  })
+  symbols.tallyTargets.forEach((target, index) => {
+    const region = regions.get(`${target.cellX},${target.cellY}`)
+    if (region === undefined) return
+    removableSymbols.push({ kind: 'tally-mark', index, region })
+  })
+  symbols.eyeTargets.forEach((target, index) => {
+    const region = regions.get(`${target.cellX},${target.cellY}`)
+    if (region === undefined) return
+    removableSymbols.push({ kind: 'eye', index, region })
   })
   symbols.sentinelTargets.forEach((target, index) => {
     const region = regions.get(`${target.cellX},${target.cellY}`)
@@ -613,6 +866,13 @@ export function evaluatePathConstraints(
       const removedCardinals = new Set<number>()
       const removedSpinners = new Set<number>()
       const removedGhosts = new Set<number>()
+      const removedCrystals = new Set<number>()
+      const removedChips = new Set<number>()
+      const removedDice = new Set<number>()
+      const removedBlackHoles = new Set<number>()
+      const removedOpenPentagons = new Set<number>()
+      const removedTallyMarks = new Set<number>()
+      const removedEyes = new Set<number>()
       const removedSentinels = new Set<number>()
       const removedPolyominoes = new Set<number>()
       const removedHexagons = new Set<number>()
@@ -638,6 +898,13 @@ export function evaluatePathConstraints(
         if (symbol.kind === 'cardinal') removedCardinals.add(symbol.index)
         if (symbol.kind === 'spinner') removedSpinners.add(symbol.index)
         if (symbol.kind === 'ghost') removedGhosts.add(symbol.index)
+        if (symbol.kind === 'crystal') removedCrystals.add(symbol.index)
+        if (symbol.kind === 'chip') removedChips.add(symbol.index)
+        if (symbol.kind === 'dice') removedDice.add(symbol.index)
+        if (symbol.kind === 'black-hole') removedBlackHoles.add(symbol.index)
+        if (symbol.kind === 'open-pentagon') removedOpenPentagons.add(symbol.index)
+        if (symbol.kind === 'tally-mark') removedTallyMarks.add(symbol.index)
+        if (symbol.kind === 'eye') removedEyes.add(symbol.index)
         if (symbol.kind === 'sentinel') removedSentinels.add(symbol.index)
         if (symbol.kind === 'polyomino') removedPolyominoes.add(symbol.index)
         if (symbol.kind === 'hexagon') removedHexagons.add(symbol.index)
@@ -657,6 +924,17 @@ export function evaluatePathConstraints(
         cardinalTargets: symbols.cardinalTargets.filter((_, index) => !removedCardinals.has(index)),
         spinnerTargets: symbols.spinnerTargets.filter((_, index) => !removedSpinners.has(index)),
         ghostTargets: symbols.ghostTargets.filter((_, index) => !removedGhosts.has(index)),
+        crystalTargets: symbols.crystalTargets.filter((_, index) => !removedCrystals.has(index)),
+        chipTargets: symbols.chipTargets.filter((_, index) => !removedChips.has(index)),
+        diceTargets: symbols.diceTargets.filter((_, index) => !removedDice.has(index)),
+        blackHoleTargets: symbols.blackHoleTargets.filter(
+          (_, index) => !removedBlackHoles.has(index)
+        ),
+        openPentagonTargets: symbols.openPentagonTargets.filter(
+          (_, index) => !removedOpenPentagons.has(index)
+        ),
+        tallyTargets: symbols.tallyTargets.filter((_, index) => !removedTallyMarks.has(index)),
+        eyeTargets: symbols.eyeTargets.filter((_, index) => !removedEyes.has(index)),
         sentinelTargets: symbols.sentinelTargets.filter((_, index) => !removedSentinels.has(index)),
         polyominoSymbols: symbols.polyominoSymbols.filter((_, index) => !removedPolyominoes.has(index)),
         hexTargets: symbols.hexTargets.filter((_, index) => !removedHexagons.has(index)),
@@ -680,10 +958,7 @@ export function evaluatePathConstraints(
     for (const selected of chosenNegations) {
       const symbol = selected.target
       if (symbol.kind === 'negator') continue
-      const restored = buildFilteredSymbols(
-        eliminatedKey(symbol),
-        selected.negatorIndex
-      )
+      const restored = buildFilteredSymbols(eliminatedKey(symbol))
       if (satisfiesBaseConstraints(path, usedEdges, activeKinds, restored)) {
         return null
       }

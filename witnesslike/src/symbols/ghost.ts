@@ -50,7 +50,8 @@ function pickGhostPath(
   seed: number,
   blockedCells: Set<string>,
   selectedSymbolCount: number,
-  preferredPath?: Point[]
+  preferredPath?: Point[],
+  forcePreferredPath = false
 ) {
   const rng = mulberry32(seed)
   const tryPath = (candidate: Point[] | null) => {
@@ -77,6 +78,9 @@ function pickGhostPath(
     preferredPath && isPathCompatible(preferredPath, edges)
       ? tryPath(preferredPath)
       : null
+  if (forcePreferredPath) {
+    return preferredCandidate
+  }
   if (preferredCandidate && preferredCandidate.regionCount <= 3) {
     return preferredCandidate
   }
@@ -163,7 +167,8 @@ export function generateGhostsForEdges(
   starsActive: boolean,
   selectedSymbolCount = 1,
   preferredColors?: string[],
-  preferredPath?: Point[]
+  preferredPath?: Point[],
+  forcePreferredPath = false
 ) {
   const rng = mulberry32(seed)
   const picked = pickGhostPath(
@@ -171,7 +176,8 @@ export function generateGhostsForEdges(
     seed + 19,
     blockedCells,
     selectedSymbolCount,
-    preferredPath
+    preferredPath,
+    forcePreferredPath
   )
   if (!picked) return null
 
@@ -186,9 +192,41 @@ export function generateGhostsForEdges(
     if (normalizedPreferred.length > 0) {
       palette = normalizedPreferred.slice(0, 3)
     } else {
-      palette = shuffle(COLOR_PALETTE, rng).slice(0, 1)
+      palette = shuffle(COLOR_PALETTE, rng).slice(0, 2)
+    }
+    if (palette.length === 1) {
+      const fallback = shuffle(
+        COLOR_PALETTE.filter((color) => color !== palette[0]),
+        rng
+      )
+      const extraColor = fallback[0]
+      if (extraColor && rng() < 0.88) {
+        palette = [palette[0], extraColor]
+      }
     }
     if (palette.length === 0) palette = [DEFAULT_GHOST_COLOR]
+  }
+
+  const regionCount = regionCells.size
+  const colorPool =
+    starsActive && palette.length > 1 && regionCount >= 2
+      ? shuffle([...palette], rng).slice(0, Math.min(palette.length, regionCount >= 3 ? 3 : 2))
+      : palette
+  const colorUsage = new Map<string, number>()
+  const pickGhostColor = () => {
+    if (!starsActive || colorPool.length <= 1) {
+      const color = colorPool[randInt(rng, colorPool.length)] ?? DEFAULT_GHOST_COLOR
+      colorUsage.set(color, (colorUsage.get(color) ?? 0) + 1)
+      return color
+    }
+    const ranked = shuffle([...colorPool], rng).sort((a, b) => {
+      const usageDiff = (colorUsage.get(a) ?? 0) - (colorUsage.get(b) ?? 0)
+      if (usageDiff !== 0) return usageDiff
+      return rng() < 0.5 ? -1 : 1
+    })
+    const color = ranked[0] ?? colorPool[0] ?? DEFAULT_GHOST_COLOR
+    colorUsage.set(color, (colorUsage.get(color) ?? 0) + 1)
+    return color
   }
 
   const targets: GhostTarget[] = []
@@ -200,8 +238,19 @@ export function generateGhostsForEdges(
     targets.push({
       cellX: cell.x,
       cellY: cell.y,
-      color: palette[randInt(rng, palette.length)] ?? DEFAULT_GHOST_COLOR,
+      color: pickGhostColor(),
     })
+  }
+  if (starsActive && colorPool.length > 1 && targets.length >= 2) {
+    const usedColors = new Set(targets.map((target) => target.color))
+    if (usedColors.size === 1) {
+      const firstColor = targets[0]?.color
+      const fallbackColor = colorPool.find((color) => color !== firstColor)
+      const lastTarget = targets[targets.length - 1]
+      if (lastTarget && fallbackColor) {
+        lastTarget.color = fallbackColor
+      }
+    }
   }
 
   if (targets.length < 2 || targets.length > 5) return null

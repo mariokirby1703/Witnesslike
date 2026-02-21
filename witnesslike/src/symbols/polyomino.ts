@@ -212,6 +212,16 @@ function canTileRegion(regionCells: Array<{ x: number; y: number }>, symbols: Po
   const regionSet = new Set(regionCells.map((cell) => `${cell.x},${cell.y}`))
   const regionSize = regionCells.length
   const hasNegative = symbols.some((symbol) => symbol.negative)
+  const positiveArea = symbols.reduce(
+    (sum, symbol) => sum + (symbol.negative ? 0 : symbol.shape.size),
+    0
+  )
+  const negativeArea = symbols.reduce(
+    (sum, symbol) => sum + (symbol.negative ? symbol.shape.size : 0),
+    0
+  )
+  if (!hasNegative && positiveArea !== regionSize) return false
+  if (hasNegative && positiveArea - negativeArea !== regionSize) return false
   const cellIndex = new Map<string, number>()
   regionCells.forEach((cell, idx) => cellIndex.set(`${cell.x},${cell.y}`, idx))
 

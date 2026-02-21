@@ -14,6 +14,13 @@ export type TileKind =
   | 'triangles'
   | 'dots'
   | 'diamonds'
+  | 'crystals'
+  | 'chips'
+  | 'dice'
+  | 'black-holes'
+  | 'open-pentagons'
+  | 'tally-marks'
+  | 'eyes'
   | 'ghost'
   | 'negator'
   | 'sentinel'
@@ -21,7 +28,6 @@ export type TileKind =
   | 'rotated-polyomino'
   | 'negative-polyomino'
   | 'rotated-negative-polyomino'
-  | 'placeholder'
 
 export type Tile = {
   id: number
@@ -50,6 +56,122 @@ function SymbolTile({ kind, variant = 'grid' }: { kind: TileKind; variant?: 'gri
       points.push(`${x},${y}`)
     }
     return points.join(' ')
+  }
+  const rosettePath = (
+    cx: number,
+    cy: number,
+    baseRadius: number,
+    waveAmplitude: number,
+    waveCount: number,
+    wavePhase = 0,
+    samples = 84
+  ) => {
+    const points: string[] = []
+    for (let i = 0; i <= samples; i += 1) {
+      const theta = (i / samples) * Math.PI * 2
+      const radius = baseRadius + waveAmplitude * Math.cos(theta * waveCount + wavePhase)
+      const x = cx + radius * Math.cos(theta)
+      const y = cy + radius * Math.sin(theta)
+      points.push(`${x},${y}`)
+    }
+    if (points.length === 0) return ''
+    return `M ${points[0]} L ${points.slice(1).join(' ')} Z`
+  }
+  const dicePipCoords = (value: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9) => {
+    const tl = [28, 28] as const
+    const tc = [50, 28] as const
+    const tr = [72, 28] as const
+    const ml = [28, 50] as const
+    const c = [50, 50] as const
+    const mr = [72, 50] as const
+    const bl = [28, 72] as const
+    const bc = [50, 72] as const
+    const br = [72, 72] as const
+    if (value === 1) return [c]
+    if (value === 2) return [tl, br]
+    if (value === 3) return [tl, c, br]
+    if (value === 4) return [tl, tr, bl, br]
+    if (value === 5) return [tl, tr, c, bl, br]
+    if (value === 6) return [tl, tr, ml, mr, bl, br]
+    if (value === 7) return [tl, tr, ml, c, mr, bl, br]
+    if (value === 8) return [tl, tc, tr, ml, mr, bl, bc, br]
+    return [tl, tc, tr, ml, c, mr, bl, bc, br]
+  }
+  const openPentagonTilePoints = () => {
+    const centerX = 50
+    const centerY = 50
+    const radius = 28
+    const startAngleDeg = 126
+    const stepDeg = 72
+    return Array.from({ length: 5 }, (_, index) => startAngleDeg + stepDeg * index)
+      .map((angleDeg) => {
+        const angle = (angleDeg * Math.PI) / 180
+        const x = centerX + Math.cos(angle) * radius
+        const y = centerY + Math.sin(angle) * radius
+        return `${x},${y}`
+      })
+      .join(' ')
+  }
+  const tallyMarkTileSegments = (value: number) => {
+    const count = Math.max(0, Math.floor(value))
+    if (count === 0) return []
+    const segments: Array<{ x1: number; y1: number; x2: number; y2: number }> = []
+    const rowCounts: number[] = []
+    let remaining = count
+    while (remaining > 0) {
+      const rowCount = Math.min(10, remaining)
+      rowCounts.push(rowCount)
+      remaining -= rowCount
+    }
+    const groupWidth = 48
+    const groupGap = 9
+    const totalHeight = 64
+    const rowGap = rowCounts.length > 1 ? 10 : 0
+    const rowHeight = (totalHeight - rowGap * (rowCounts.length - 1)) / rowCounts.length
+    const addGroup = (
+      groupIndex: number,
+      markCount: number,
+      withSlash: boolean,
+      startX: number,
+      rowTop: number,
+      rowBottom: number
+    ) => {
+      const groupX = startX + groupIndex * (groupWidth + groupGap)
+      const markTotal = Math.min(4, markCount)
+      if (markTotal > 0) {
+        const markSpacing = groupWidth / 3.4
+        const marksSpan = (markTotal - 1) * markSpacing
+        const firstX = groupX + (groupWidth - marksSpan) / 2
+        for (let markIndex = 0; markIndex < markTotal; markIndex += 1) {
+          const x = firstX + markIndex * markSpacing
+          segments.push({ x1: x, y1: rowTop, x2: x, y2: rowBottom })
+        }
+      }
+      if (withSlash) {
+        segments.push({
+          x1: groupX + groupWidth * 0.02,
+          y1: rowBottom - rowHeight * 0.06,
+          x2: groupX + groupWidth * 0.98,
+          y2: rowTop + rowHeight * 0.06,
+        })
+      }
+    }
+    rowCounts.forEach((rowCount, rowIndex) => {
+      const fullGroups = Math.floor(rowCount / 5)
+      const remainder = rowCount % 5
+      const groupCount = fullGroups + (remainder > 0 ? 1 : 0)
+      const rowWidth = groupCount * groupWidth + (groupCount - 1) * groupGap
+      const startX = 50 - rowWidth / 2
+      const rowTop = 18 + rowIndex * (rowHeight + rowGap)
+      const rowBottom = rowTop + rowHeight
+      for (let groupIndex = 0; groupIndex < fullGroups; groupIndex += 1) {
+        addGroup(groupIndex, 4, true, startX, rowTop, rowBottom)
+      }
+      if (remainder > 0) {
+        addGroup(fullGroups, remainder, false, startX, rowTop, rowBottom)
+      }
+    })
+    return segments
   }
 
   if (kind === 'gap-line') {
@@ -136,9 +258,9 @@ function SymbolTile({ kind, variant = 'grid' }: { kind: TileKind; variant?: 'gri
   if (kind === 'chevrons') {
     return (
       <svg viewBox="0 0 100 100" aria-hidden="true">
-        <polygon className="tile-chevron" points="0,33 20,33 35,50 20,67 00,67 15,50" />
-        <polygon className="tile-chevron" points="32,33 52,33 67,50 52,67 32,67 45,50" />
-        <polygon className="tile-chevron" points="64,33 84,33 99,50 84,67 64,67 79,50" />
+        <polygon className="tile-chevron" points="0,28 20,28 35,50 20,72 00,72 15,50" />
+        <polygon className="tile-chevron" points="32,28 52,28 67,50 52,72 32,72 45,50" />
+        <polygon className="tile-chevron" points="64,28 84,28 99,50 84,72 64,72 79,50" />
       </svg>
     )
   }
@@ -179,6 +301,102 @@ function SymbolTile({ kind, variant = 'grid' }: { kind: TileKind; variant?: 'gri
       <svg viewBox="0 0 100 100" aria-hidden="true">
         <polygon className="tile-diamond" points="26,26 48,48 26,70 4,48" />
         <polygon className="tile-diamond" points="74,26 96,48 74,70 52,48" />
+      </svg>
+    )
+  }
+
+  if (kind === 'crystals') {
+    return (
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <polygon className="tile-crystal-face" points="50,8 24,26 36,40 50,26" style={{ fill: '#c92546' }} />
+        <polygon className="tile-crystal-face" points="50,8 76,26 64,40 50,26" style={{ fill: '#b50f34' }} />
+        <polygon className="tile-crystal-face" points="24,26 36,40 36,60 24,74" style={{ fill: '#a90d30' }} />
+        <polygon className="tile-crystal-face" points="76,26 64,40 64,60 76,74" style={{ fill: '#8f0a27' }} />
+        <polygon className="tile-crystal-face" points="50,26 36,40 36,60 50,74" style={{ fill: '#db3f5f' }} />
+        <polygon className="tile-crystal-face" points="50,26 64,40 64,60 50,74" style={{ fill: '#c72648' }} />
+        <polygon className="tile-crystal-face" points="24,74 36,60 50,74 50,92" style={{ fill: '#b10f33' }} />
+        <polygon className="tile-crystal-face" points="76,74 64,60 50,74 50,92" style={{ fill: '#7f0822' }} />
+      </svg>
+    )
+  }
+
+  if (kind === 'chips') {
+    const outerPath = rosettePath(50, 50, 35, 5.7, 6, Math.PI)
+    const innerPath = rosettePath(50, 50, 20, 2.6, 6, Math.PI)
+    return (
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <path className="tile-chip-shell" d={outerPath} />
+        <path className="tile-chip-hole" d={innerPath} />
+      </svg>
+    )
+  }
+
+  if (kind === 'dice') {
+    const pips = dicePipCoords(5)
+    return (
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <g transform="rotate(-4 50 50)">
+          <rect className="tile-dice-face" x="17" y="17" width="66" height="66" rx="0" />
+          {pips.map(([x, y], index) => (
+            <circle key={`tile-dice-pip-${index}`} className="tile-dice-pip" cx={x} cy={y} r="5.2" />
+          ))}
+        </g>
+      </svg>
+    )
+  }
+
+  if (kind === 'black-holes') {
+    return (
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <g transform="translate(50 50)">
+          {[0, 60, 120, 180, 240, 300].map((angle) => (
+            <g key={`tile-black-hole-arm-${angle}`} transform={`rotate(${angle})`}>
+              <path
+                className="tile-black-hole-arm"
+                d="M 0 0 C 8 -2 15 -8 17 -17 C 19 -26 14 -34 6 -36"
+              />
+            </g>
+          ))}
+          <circle className="tile-black-hole-center" cx={0} cy={0} r={10.8} />
+        </g>
+      </svg>
+    )
+  }
+
+  if (kind === 'open-pentagons') {
+    return (
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <polyline
+          className="tile-open-pentagon-line"
+          points={openPentagonTilePoints()}
+        />
+      </svg>
+    )
+  }
+
+  if (kind === 'tally-marks') {
+    const segments = tallyMarkTileSegments(7)
+    return (
+      <svg viewBox="-10 0 110 100" aria-hidden="true">
+        {segments.map((segment, index) => (
+          <line
+            key={`tile-tally-mark-${index}`}
+            className="tile-tally-mark-line"
+            x1={segment.x1}
+            y1={segment.y1}
+            x2={segment.x2}
+            y2={segment.y2}
+          />
+        ))}
+      </svg>
+    )
+  }
+
+  if (kind === 'eyes') {
+    return (
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <polygon className="tile-eye-outline" points="14,50 50,23 86,50 50,77" />
+        <circle className="tile-eye-pupil" cx="50" cy="50" r="6.4" />
       </svg>
     )
   }
@@ -397,6 +615,13 @@ function HomePage({ tiles, selectedIds, onToggle, onStart }: HomePageProps) {
     selectedKinds.has('cardinal') ||
     selectedKinds.has('spinner') ||
     selectedKinds.has('sentinel') ||
+    selectedKinds.has('crystals') ||
+    selectedKinds.has('chips') ||
+    selectedKinds.has('dice') ||
+    selectedKinds.has('black-holes') ||
+    selectedKinds.has('open-pentagons') ||
+    selectedKinds.has('tally-marks') ||
+    selectedKinds.has('eyes') ||
     selectedKinds.has('ghost') ||
     selectedKinds.has('triangles') ||
     selectedKinds.has('dots') ||
@@ -405,6 +630,10 @@ function HomePage({ tiles, selectedIds, onToggle, onStart }: HomePageProps) {
     selectedKinds.has('rotated-polyomino') ||
     selectedKinds.has('negative-polyomino') ||
     selectedKinds.has('rotated-negative-polyomino')
+  const hasGhostCrystalCombo =
+    selectedKinds.has('ghost') && selectedKinds.has('crystals')
+  const hasCrystalTallyCombo =
+    selectedKinds.has('crystals') && selectedKinds.has('tally-marks')
   return (
     <div className="app home">
       <header className="home-hero">
@@ -425,7 +654,7 @@ function HomePage({ tiles, selectedIds, onToggle, onStart }: HomePageProps) {
           const missingNegatorPrereq =
             tile.kind === 'negator' &&
             !isSelected &&
-            !hasNegatorPrereq
+            (!hasNegatorPrereq || hasGhostCrystalCombo || hasCrystalTallyCombo)
           const prereqLocked = missingPolyPrereq || missingNegatorPrereq
           const isDisabled = !tile.active || (!isSelected && maxReached) || prereqLocked
           return (

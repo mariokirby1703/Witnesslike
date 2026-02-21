@@ -25,6 +25,13 @@ import type { DiamondTarget } from './diamonds'
 import type { ChevronTarget } from './chevrons'
 import type { WaterDropletTarget } from './waterDroplet'
 import type { GhostTarget } from './ghost'
+import type { CrystalTarget } from './crystals'
+import type { ChipTarget } from './chips'
+import type { DiceTarget } from './dice'
+import type { BlackHoleTarget } from './blackHoles'
+import type { OpenPentagonTarget } from './openPentagons'
+import type { TallyMarkTarget } from './tallyMarks'
+import type { EyeTarget } from './eyes'
 
 export type SentinelDirection = 'up' | 'right' | 'down' | 'left'
 
@@ -48,6 +55,13 @@ type SentinelSupportSymbols = {
   cardinalTargets: CardinalTarget[]
   spinnerTargets: SpinnerTarget[]
   ghostTargets: GhostTarget[]
+  crystalTargets: CrystalTarget[]
+  chipTargets: ChipTarget[]
+  diceTargets: DiceTarget[]
+  blackHoleTargets: BlackHoleTarget[]
+  openPentagonTargets: OpenPentagonTarget[]
+  tallyTargets?: TallyMarkTarget[]
+  eyeTargets?: EyeTarget[]
   polyominoSymbols: PolyominoSymbol[]
   negatorTargets: NegatorTarget[]
   hexTargets: HexTarget[]
@@ -216,6 +230,13 @@ function buildObservedSymbols(
   for (const target of symbols.cardinalTargets) addCellSymbol(target.cellX, target.cellY)
   for (const target of symbols.spinnerTargets) addCellSymbol(target.cellX, target.cellY)
   for (const target of symbols.ghostTargets) addCellSymbol(target.cellX, target.cellY)
+  for (const target of symbols.crystalTargets) addCellSymbol(target.cellX, target.cellY)
+  for (const target of symbols.chipTargets) addCellSymbol(target.cellX, target.cellY)
+  for (const target of symbols.diceTargets) addCellSymbol(target.cellX, target.cellY)
+  for (const target of symbols.blackHoleTargets) addCellSymbol(target.cellX, target.cellY)
+  for (const target of symbols.openPentagonTargets) addCellSymbol(target.cellX, target.cellY)
+  for (const target of symbols.tallyTargets ?? []) addCellSymbol(target.cellX, target.cellY)
+  for (const target of symbols.eyeTargets ?? []) addCellSymbol(target.cellX, target.cellY)
   for (const target of symbols.polyominoSymbols) addCellSymbol(target.cellX, target.cellY)
   for (const target of symbols.negatorTargets) addCellSymbol(target.cellX, target.cellY)
   symbols.sentinelTargets.forEach((target, index) => {
@@ -331,7 +352,7 @@ export function generateSentinelsForEdges(
   if (availableCells.length === 0) return null
 
   const lowSymbolSet = selectedSymbolCount <= 2
-  const minCount = lowSymbolSet ? 3 : 1
+  const minCount = lowSymbolSet ? 3 : 2
   const maxCount = lowSymbolSet ? 7 : 4
   const maxAllowed = Math.min(maxCount, availableCells.length)
   if (maxAllowed < minCount) return null
