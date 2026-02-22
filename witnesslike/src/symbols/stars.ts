@@ -19,6 +19,7 @@ import type { DiceTarget } from './dice'
 import type { BlackHoleTarget } from './blackHoles'
 import type { TallyMarkTarget } from './tallyMarks'
 import type { EyeTarget } from './eyes'
+import type { CompassTarget } from './compass'
 
 export type StarTarget = {
   cellX: number
@@ -50,7 +51,8 @@ export function generateStarsForEdges(
   eyeTargets: EyeTarget[] = [],
   allowNegatorOrphan = false,
   preferredPath?: { x: number; y: number }[],
-  selectedSymbolCount = 3
+  selectedSymbolCount = 3,
+  compassTargets: CompassTarget[] = []
 ) {
   const rng = mulberry32(seed)
   const solutionPath =
@@ -195,6 +197,13 @@ export function generateStarsForEdges(
     const regionMap = coloredCounts.get(region)
     regionMap?.set(eye.color, (regionMap.get(eye.color) ?? 0) + 1)
   }
+  for (const compass of compassTargets) {
+    const region = regions.get(`${compass.cellX},${compass.cellY}`)
+    if (region === undefined) continue
+    if (!coloredCounts.has(region)) coloredCounts.set(region, new Map())
+    const regionMap = coloredCounts.get(region)
+    regionMap?.set(compass.color, (regionMap.get(compass.color) ?? 0) + 1)
+  }
 
   const symbolColors = Array.from(new Set(arrowTargets.map((arrow) => arrow.color)))
   for (const square of colorSquares) {
@@ -282,9 +291,15 @@ export function generateStarsForEdges(
       symbolColors.push(eye.color)
     }
   }
+  for (const compass of compassTargets) {
+    if (!symbolColors.includes(compass.color)) {
+      symbolColors.push(compass.color)
+    }
+  }
 
-  const desiredColorCount = Math.min(3, Math.max(2, symbolColors.length, 2 + randInt(rng, 2)))
-  const palette = [...symbolColors]
+  const baseColors = symbolColors.slice(0, 3)
+  const desiredColorCount = Math.min(3, Math.max(2, baseColors.length, 2 + randInt(rng, 2)))
+  const palette = [...baseColors]
   const remainingColors = shuffle(
     COLOR_PALETTE.filter((color) => !palette.includes(color)),
     rng
@@ -341,6 +356,7 @@ export function generateStarsForEdges(
       ...blackHoleTargets.map((blackHole) => `${blackHole.cellX},${blackHole.cellY}`),
       ...tallyTargets.map((tally) => `${tally.cellX},${tally.cellY}`),
       ...eyeTargets.map((eye) => `${eye.cellX},${eye.cellY}`),
+      ...compassTargets.map((compass) => `${compass.cellX},${compass.cellY}`),
     ]
   )
 
@@ -378,7 +394,8 @@ export function generateStarsForEdges(
       diceTargets.length +
       blackHoleTargets.length +
       tallyTargets.length +
-      eyeTargets.length >
+      eyeTargets.length +
+      compassTargets.length >
     0
   const oneStarSlots = shuffledSlots.filter((slot) => slot.starsNeeded === 1)
   const placeableOneStarSlots = oneStarSlots.filter((slot) => {
@@ -482,7 +499,8 @@ export function checkStars(
   tallyTargets: TallyMarkTarget[] = [],
   eyeTargets: EyeTarget[] = [],
   negatorTargets: NegatorTarget[] = [],
-  sentinelTargets: SentinelTarget[] = []
+  sentinelTargets: SentinelTarget[] = [],
+  compassTargets: CompassTarget[] = []
 ) {
   const regions = buildCellRegions(usedEdges)
   const regionCounts = new Map<number, Map<string, { stars: number; symbols: number }>>()
@@ -683,6 +701,16 @@ export function checkStars(
     entry.symbols += 1
     colorMap.set(eye.color, entry)
   }
+  for (const compass of compassTargets) {
+    const region = regions.get(`${compass.cellX},${compass.cellY}`)
+    if (region === undefined) continue
+    if (!regionCounts.has(region)) regionCounts.set(region, new Map())
+    const colorMap = regionCounts.get(region)
+    if (!colorMap) continue
+    const entry = colorMap.get(compass.color) ?? { stars: 0, symbols: 0 }
+    entry.symbols += 1
+    colorMap.set(compass.color, entry)
+  }
 
   for (const negator of negatorTargets) {
     const region = regions.get(`${negator.cellX},${negator.cellY}`)
@@ -716,3 +744,5 @@ export function checkStars(
 
   return true
 }
+
+

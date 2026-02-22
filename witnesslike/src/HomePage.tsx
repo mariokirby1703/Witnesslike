@@ -21,6 +21,7 @@ export type TileKind =
   | 'open-pentagons'
   | 'tally-marks'
   | 'eyes'
+  | 'compasses'
   | 'ghost'
   | 'negator'
   | 'sentinel'
@@ -401,6 +402,23 @@ function SymbolTile({ kind, variant = 'grid' }: { kind: TileKind; variant?: 'gri
     )
   }
 
+  if (kind === 'compasses') {
+    const compassScale = variant === 'selected' ? 1.18 : 1.32
+    return (
+      <svg viewBox="0 -4 100 100" aria-hidden="true">
+        <g transform={`translate(50 50) scale(${compassScale})`}>
+          <circle className="tile-compass-ring" cx="0" cy="0" r="30" />
+          <circle className="tile-compass-dot" cx="0" cy="0" r="3.8" />
+          <polygon className="tile-compass-north-tip" points="0,-41 5.2,-33.2 -5.2,-33.2" />
+          <text className="tile-compass-label" x="0" y="-18" textAnchor="middle" dominantBaseline="middle">N</text>
+          <text className="tile-compass-label" x="18" y="1" textAnchor="middle" dominantBaseline="middle">E</text>
+          <text className="tile-compass-label" x="0" y="19" textAnchor="middle" dominantBaseline="middle">S</text>
+          <text className="tile-compass-label" x="-18" y="1" textAnchor="middle" dominantBaseline="middle">W</text>
+        </g>
+      </svg>
+    )
+  }
+
   if (kind === 'ghost') {
     return (
       <svg viewBox="0 0 100 100" aria-hidden="true">
@@ -622,6 +640,7 @@ function HomePage({ tiles, selectedIds, onToggle, onStart }: HomePageProps) {
     selectedKinds.has('open-pentagons') ||
     selectedKinds.has('tally-marks') ||
     selectedKinds.has('eyes') ||
+    selectedKinds.has('compasses') ||
     selectedKinds.has('ghost') ||
     selectedKinds.has('triangles') ||
     selectedKinds.has('dots') ||
@@ -702,6 +721,7 @@ function HomePage({ tiles, selectedIds, onToggle, onStart }: HomePageProps) {
 }
 
 export default HomePage
+
 
 
 

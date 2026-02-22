@@ -28,7 +28,8 @@ import type { TriangleTarget } from './triangles'
 import type { WaterDropletTarget } from './waterDroplet'
 import type { BlackHoleTarget } from './blackHoles'
 import type { TallyMarkTarget } from './tallyMarks'
-import type { EyeTarget } from './eyes'
+import { resolveEyeEffects, type EyeTarget } from './eyes'
+import type { CompassTarget } from './compass'
 
 export type OpenPentagonTarget = {
   cellX: number
@@ -64,6 +65,7 @@ export type OpenPentagonSupportSymbols = {
   negatorTargets: NegatorTarget[]
   tallyTargets?: TallyMarkTarget[]
   eyeTargets?: EyeTarget[]
+  compassTargets?: CompassTarget[]
   openPentagonTargets?: OpenPentagonTarget[]
 }
 
@@ -72,6 +74,7 @@ export type OpenPentagonConstraintSymbols = OpenPentagonSupportSymbols & {
 }
 
 const DEFAULT_OPEN_PENTAGON_COLOR = '#d88a14'
+const MAX_COLOR_RULE_COLORS = 3
 
 function cellKey(cellX: number, cellY: number) {
   return `${cellX},${cellY}`
@@ -110,6 +113,7 @@ function collectColoredCells(
   colored.push(...symbols.negatorTargets)
   colored.push(...(symbols.tallyTargets ?? []))
   colored.push(...(symbols.eyeTargets ?? []))
+  colored.push(...(symbols.compassTargets ?? []))
   colored.push(...openPentagonTargets)
   return colored
 }
@@ -333,7 +337,8 @@ function countSupportSymbols(symbols: OpenPentagonSupportSymbols) {
     symbols.polyominoSymbols.length +
     symbols.negatorTargets.length +
     (symbols.tallyTargets?.length ?? 0) +
-    (symbols.eyeTargets?.length ?? 0)
+    (symbols.eyeTargets?.length ?? 0) +
+    (symbols.compassTargets?.length ?? 0)
   )
 }
 
@@ -376,15 +381,15 @@ export function generateOpenPentagonsForEdges(
         collectColoredCells(symbols, symbols.openPentagonTargets ?? []).map((target) => target.color)
       )
     )
-    const preferred = Array.from(new Set(preferredColors ?? []))
+    const preferred = Array.from(new Set(preferredColors ?? [])).slice(0, MAX_COLOR_RULE_COLORS)
     const base =
       preferred.length > 0
         ? preferred
         : supportColors.length > 0
-          ? shuffle(supportColors, rng)
+          ? shuffle(supportColors, rng).slice(0, MAX_COLOR_RULE_COLORS)
           : []
     const fallback = shuffle(COLOR_PALETTE.filter((color) => !base.includes(color)), rng)
-    palette = [...base, ...fallback]
+    palette = [...base, ...fallback].slice(0, MAX_COLOR_RULE_COLORS)
     if (palette.length === 0) palette = [DEFAULT_OPEN_PENTAGON_COLOR]
   }
 
@@ -460,7 +465,11 @@ export function generateOpenPentagonsForEdges(
           ...symbols,
           openPentagonTargets: targets,
         }
-        if (checkOpenPentagons(usedEdges, constraintSymbols)) {
+        const effectiveUsedEdges =
+          (symbols.eyeTargets?.length ?? 0) > 0
+            ? resolveEyeEffects(usedEdges, symbols.eyeTargets ?? []).effectiveUsedEdges
+            : usedEdges
+        if (checkOpenPentagons(effectiveUsedEdges, constraintSymbols)) {
           return { targets, solutionPath }
         }
       }
@@ -469,3 +478,5 @@ export function generateOpenPentagonsForEdges(
 
   return null
 }
+
+

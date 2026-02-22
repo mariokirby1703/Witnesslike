@@ -97,6 +97,12 @@ const ACTIVE_SYMBOLS: Array<{ label: string; description: string; kind: TileKind
     kind: 'eyes',
   },
   {
+    label: 'Compass',
+    description:
+      'All same-color compasses must have exactly the same cell edges touched by the line; rotated/flipped compasses rotate/flip that required edge pattern too.',
+    kind: 'compasses',
+  },
+  {
     label: 'Ghost',
     description: 'Each ghost needs its own region, and the total region count must equal ghost count.',
     kind: 'ghost',
@@ -216,3 +222,4 @@ function App() {
 }
 
 export default App
+

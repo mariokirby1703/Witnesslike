@@ -21,6 +21,7 @@ import type { BlackHoleTarget } from './blackHoles'
 import type { OpenPentagonTarget } from './openPentagons'
 import type { TallyMarkTarget } from './tallyMarks'
 import type { EyeTarget } from './eyes'
+import type { CompassTarget } from './compass'
 import { collectFailingCrystalIndexes } from './crystals'
 import {
   COLOR_PALETTE,
@@ -114,6 +115,7 @@ export function generateNegatorsForEdges(
   openPentagonTargets: OpenPentagonTarget[],
   tallyTargets: TallyMarkTarget[],
   eyeTargets: EyeTarget[],
+  compassTargets: CompassTarget[] = [],
   starsActive: boolean,
   preferredColors: string[],
   preferredPath?: Point[]
@@ -207,6 +209,9 @@ export function generateNegatorsForEdges(
   })
   eyeTargets.forEach((target, index) => {
     addRemovable(`eye:${index}`, regions.get(`${target.cellX},${target.cellY}`))
+  })
+  compassTargets.forEach((target, index) => {
+    addRemovable(`compass:${index}`, regions.get(`${target.cellX},${target.cellY}`))
   })
   if (allRemovableKeys.size === 0) return null
 
@@ -314,3 +319,5 @@ export function generateNegatorsForEdges(
 
   return { negators, solutionPath }
 }
+
+

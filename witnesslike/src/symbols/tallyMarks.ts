@@ -29,7 +29,8 @@ import type { StarTarget } from './stars'
 import type { TriangleTarget } from './triangles'
 import type { WaterDropletTarget } from './waterDroplet'
 import type { BlackHoleTarget } from './blackHoles'
-import type { EyeTarget } from './eyes'
+import { resolveEyeEffects, type EyeTarget } from './eyes'
+import type { CompassTarget } from './compass'
 
 export type TallyMarkTarget = {
   cellX: number
@@ -67,9 +68,11 @@ export type TallyMarkSupportSymbols = {
   negatorTargets: NegatorTarget[]
   tallyTargets?: TallyMarkTarget[]
   eyeTargets?: EyeTarget[]
+  compassTargets?: CompassTarget[]
 }
 
 const DEFAULT_TALLY_COLOR = '#f8f5ef'
+const MAX_COLOR_RULE_COLORS = 3
 
 function isPathCompatible(path: Point[], edges: Set<string>) {
   for (let index = 1; index < path.length; index += 1) {
@@ -103,6 +106,7 @@ function collectColoredCells(
   colored.push(...symbols.openPentagonTargets)
   colored.push(...symbols.polyominoSymbols)
   colored.push(...symbols.negatorTargets)
+  colored.push(...(symbols.compassTargets ?? []))
   colored.push(...(symbols.tallyTargets ?? []))
   colored.push(...(symbols.eyeTargets ?? []))
   colored.push(...tallyTargets)
@@ -114,42 +118,31 @@ function regionOutlineCount(
   usedEdges: Set<string>,
   regionId: number
 ) {
-  let outline = 0
+  const touchedEdges = new Set<string>()
   for (let y = 0; y < 4; y += 1) {
     for (let x = 0; x < 4; x += 1) {
       if (regions.get(`${x},${y}`) !== regionId) continue
       const sides = [
         {
-          neighbor: { x, y: y - 1 },
           edge: edgeKey({ x, y }, { x: x + 1, y }),
         },
         {
-          neighbor: { x: x + 1, y },
           edge: edgeKey({ x: x + 1, y }, { x: x + 1, y: y + 1 }),
         },
         {
-          neighbor: { x, y: y + 1 },
           edge: edgeKey({ x, y: y + 1 }, { x: x + 1, y: y + 1 }),
         },
         {
-          neighbor: { x: x - 1, y },
           edge: edgeKey({ x, y }, { x, y: y + 1 }),
         },
       ]
       for (const side of sides) {
         if (!usedEdges.has(side.edge)) continue
-        const next = side.neighbor
-        if (next.x < 0 || next.x > 3 || next.y < 0 || next.y > 3) {
-          outline += 1
-          continue
-        }
-        if (regions.get(`${next.x},${next.y}`) !== regionId) {
-          outline += 1
-        }
+        touchedEdges.add(side.edge)
       }
     }
   }
-  return outline
+  return touchedEdges.size
 }
 
 export function collectFailingTallyMarkIndexes(
@@ -197,6 +190,28 @@ export function checkTallyMarks(
   return collectFailingTallyMarkIndexes(usedEdges, tallyTargets).size === 0
 }
 
+export function recalculateTallyMarkTargets(
+  usedEdges: Set<string>,
+  tallyTargets: TallyMarkTarget[]
+) {
+  if (tallyTargets.length === 0) return tallyTargets
+  const regions = buildCellRegions(usedEdges)
+  const cachedOutline = new Map<number, number>()
+  const regionOutline = (region: number) => {
+    if (!cachedOutline.has(region)) {
+      cachedOutline.set(region, regionOutlineCount(regions, usedEdges, region))
+    }
+    return cachedOutline.get(region) ?? 0
+  }
+  return tallyTargets.map((target) => {
+    const region = regions.get(`${target.cellX},${target.cellY}`)
+    if (region === undefined) return target
+    const count = regionOutline(region)
+    if (count === target.count) return target
+    return { ...target, count }
+  })
+}
+
 export function generateTallyMarksForEdges(
   edges: Set<string>,
   seed: number,
@@ -226,7 +241,7 @@ export function generateTallyMarksForEdges(
 
   let palette = [DEFAULT_TALLY_COLOR]
   if (colorRuleActive) {
-    const preferred = Array.from(new Set(preferredColors ?? []))
+    const preferred = Array.from(new Set(preferredColors ?? [])).slice(0, MAX_COLOR_RULE_COLORS)
     const supportColors = Array.from(
       new Set(
         collectColoredCells(symbols, symbols.tallyTargets ?? []).map((target) => target.color)
@@ -236,10 +251,10 @@ export function generateTallyMarksForEdges(
       preferred.length > 0
         ? preferred
         : supportColors.length > 0
-          ? shuffle(supportColors, rng)
+          ? shuffle(supportColors, rng).slice(0, MAX_COLOR_RULE_COLORS)
           : []
     const fallback = shuffle(COLOR_PALETTE.filter((color) => !base.includes(color)), rng)
-    palette = [...base, ...fallback]
+    palette = [...base, ...fallback].slice(0, MAX_COLOR_RULE_COLORS)
     if (palette.length === 0) palette = [DEFAULT_TALLY_COLOR]
   }
 
@@ -298,7 +313,11 @@ export function generateTallyMarksForEdges(
         })
       }
       if (targets.length !== targetCount) continue
-      if (checkTallyMarks(usedEdges, targets)) {
+      const effectiveUsedEdges =
+        (symbols.eyeTargets?.length ?? 0) > 0
+          ? resolveEyeEffects(usedEdges, symbols.eyeTargets ?? []).effectiveUsedEdges
+          : usedEdges
+      if (checkTallyMarks(effectiveUsedEdges, targets)) {
         return { targets, solutionPath }
       }
     }
@@ -306,3 +325,5 @@ export function generateTallyMarksForEdges(
 
   return null
 }
+
+

@@ -28,7 +28,8 @@ import type { TriangleTarget } from './triangles'
 import type { WaterDropletTarget } from './waterDroplet'
 import type { ChipTarget } from './chips'
 import type { TallyMarkTarget } from './tallyMarks'
-import type { EyeTarget } from './eyes'
+import { resolveEyeEffects, type EyeTarget } from './eyes'
+import type { CompassTarget } from './compass'
 
 export type BlackHoleTarget = {
   cellX: number
@@ -63,6 +64,7 @@ export type BlackHoleSupportSymbols = {
   negatorTargets: NegatorTarget[]
   tallyTargets?: TallyMarkTarget[]
   eyeTargets?: EyeTarget[]
+  compassTargets?: CompassTarget[]
   blackHoleTargets?: BlackHoleTarget[]
 }
 
@@ -71,6 +73,7 @@ export type BlackHoleConstraintSymbols = BlackHoleSupportSymbols & {
 }
 
 const DEFAULT_BLACK_HOLE_COLOR = '#111111'
+const MAX_COLOR_RULE_COLORS = 3
 
 function isPathCompatible(path: Point[], edges: Set<string>) {
   for (let index = 1; index < path.length; index += 1) {
@@ -121,6 +124,7 @@ function collectColoredCells(
   colored.push(...symbols.negatorTargets)
   colored.push(...(symbols.tallyTargets ?? []))
   colored.push(...(symbols.eyeTargets ?? []))
+  colored.push(...(symbols.compassTargets ?? []))
   colored.push(...blackHoleTargets)
   return colored
 }
@@ -214,14 +218,31 @@ export function generateBlackHolesForEdges(
   if (!solutionPath) return null
 
   const usedEdges = edgesFromPath(solutionPath)
-  const regions = buildCellRegions(usedEdges)
+  const effectiveUsedEdges =
+    (symbols.eyeTargets?.length ?? 0) > 0
+      ? resolveEyeEffects(usedEdges, symbols.eyeTargets ?? []).effectiveUsedEdges
+      : usedEdges
+  const regions = buildCellRegions(effectiveUsedEdges)
+  const eyeClearedCellKeys = new Set<string>()
+  if ((symbols.eyeTargets?.length ?? 0) > 0) {
+    for (let cellY = 0; cellY < 4; cellY += 1) {
+      for (let cellX = 0; cellX < 4; cellX += 1) {
+        if (
+          touchesCellSides(usedEdges, cellX, cellY) &&
+          !touchesCellSides(effectiveUsedEdges, cellX, cellY)
+        ) {
+          eyeClearedCellKeys.add(`${cellX},${cellY}`)
+        }
+      }
+    }
+  }
 
   const availableCells = shuffle(
     Array.from({ length: 16 }, (_, index) => ({ x: index % 4, y: Math.floor(index / 4) })).filter(
       (cell) =>
         !blockedCells.has(`${cell.x},${cell.y}`) &&
         regions.has(`${cell.x},${cell.y}`) &&
-        !touchesCellSides(usedEdges, cell.x, cell.y)
+        !touchesCellSides(effectiveUsedEdges, cell.x, cell.y)
     ),
     rng
   )
@@ -232,16 +253,16 @@ export function generateBlackHolesForEdges(
     collectColoredCells(symbols, []).map((target) => target.color)
   )
   if (colorRuleActive) {
-    const preferred = Array.from(new Set(preferredColors ?? []))
+    const preferred = Array.from(new Set(preferredColors ?? [])).slice(0, MAX_COLOR_RULE_COLORS)
     const supportColors = Array.from(supportColorSet)
     const base =
       preferred.length > 0
         ? preferred
         : supportColors.length > 0
-          ? shuffle(supportColors, rng)
+          ? shuffle(supportColors, rng).slice(0, MAX_COLOR_RULE_COLORS)
           : []
     const fallback = shuffle(COLOR_PALETTE.filter((color) => !base.includes(color)), rng)
-    palette = [...base, ...fallback]
+    palette = [...base, ...fallback].slice(0, MAX_COLOR_RULE_COLORS)
     if (palette.length === 0) palette = [DEFAULT_BLACK_HOLE_COLOR]
   }
 
@@ -272,6 +293,8 @@ export function generateBlackHolesForEdges(
       const usedCells = new Set<string>(blockedCells)
       const localRegionColorCounts = cloneMap(existingRegionColorCounts)
       const targets: BlackHoleTarget[] = []
+      const shouldPreferEyeClearedCell =
+        eyeClearedCellKeys.size > 0 && localRng() < 0.52
 
       while (targets.length < targetCount) {
         const options: Array<{
@@ -309,13 +332,18 @@ export function generateBlackHolesForEdges(
                   ? 1.85
                   : 0.62
                 : 1
+            const eyeClearedBonus = eyeClearedCellKeys.has(`${cell.x},${cell.y}`) ? 1.5 : 1
             const centerBonus = isEdgeCell(cell.x, cell.y) ? 0.8 : 1.5
             options.push({
               cellX: cell.x,
               cellY: cell.y,
               color,
               region,
-              weight: (centerBonus + localRng() * 0.42) * diversityBonus * supportColorBonus,
+              weight:
+                (centerBonus + localRng() * 0.42) *
+                diversityBonus *
+                supportColorBonus *
+                eyeClearedBonus,
             })
           }
         }
@@ -353,11 +381,17 @@ export function generateBlackHolesForEdges(
         (target) => (globalColorCounts.get(target.color) ?? 0) < 2
       )
       if (hasUnpairedBlackHoleColor) continue
+      if (
+        shouldPreferEyeClearedCell &&
+        !targets.some((target) => eyeClearedCellKeys.has(`${target.cellX},${target.cellY}`))
+      ) {
+        continue
+      }
       const constraintSymbols: BlackHoleConstraintSymbols = {
         ...symbols,
         blackHoleTargets: targets,
       }
-      if (checkBlackHoles(usedEdges, constraintSymbols)) {
+      if (checkBlackHoles(effectiveUsedEdges, constraintSymbols)) {
         return { targets, solutionPath }
       }
     }
@@ -365,3 +399,5 @@ export function generateBlackHolesForEdges(
 
   return null
 }
+
+

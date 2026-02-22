@@ -95,12 +95,15 @@
 
 .symbol-tile {
   display: grid;
+  grid-template-rows: auto minmax(2.2rem, auto);
   gap: 0.65rem;
   text-align: center;
+  align-items: start;
   transition: opacity 0.2s ease, filter 0.2s ease;
 }
 
 .symbol-button {
+  width: 100%;
   aspect-ratio: 1 / 1;
   border-radius: 28px;
   border: 1px solid var(--line);
@@ -154,7 +157,12 @@
 }
 
 .symbol-label {
+  min-height: 2.2rem;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
   font-size: 0.84rem;
+  line-height: 1.2;
   color: var(--ink-soft);
   transition: color 0.2s ease, font-weight 0.2s ease;
 }
@@ -506,6 +514,32 @@
   stroke-linejoin: round;
 }
 
+.compass-ring {
+  fill: none;
+  stroke-width: 0.052;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.compass-dot {
+  stroke: none;
+}
+
+.compass-north-tip {
+  stroke: none;
+}
+
+.compass-label {
+  font-family: var(--sans);
+  font-size: 0.086px;
+  font-weight: 700;
+  letter-spacing: 0.002em;
+  paint-order: stroke;
+  stroke: rgba(15, 36, 57, 0.92);
+  stroke-width: 0.012;
+  stroke-linejoin: round;
+}
+
 .crystal-face {
   stroke: none;
 }
@@ -598,9 +632,10 @@
 }
 
 .tile-negator-arm {
-  stroke: #4f4f4f;
+  stroke: #e7f1ff;
   stroke-width: 12;
   stroke-linecap: square;
+  filter: drop-shadow(0 2px 4px rgba(170, 212, 255, 0.28));
 }
 
 .tile-triangle {
@@ -625,15 +660,15 @@
 
 .tile-black-hole-arm {
   fill: none;
-  stroke: #1f232b;
+  stroke: #bad2ee;
   stroke-width: 6.2;
   stroke-linecap: round;
   stroke-linejoin: round;
+  filter: drop-shadow(0 2px 4px rgba(173, 206, 240, 0.24));
 }
 
 .tile-black-hole-center {
-  fill: #1f232b;
-  stroke: none;
+  fill: #bad2ee;
 }
 
 .tile-open-pentagon-line {
@@ -655,6 +690,36 @@
 .tile-eye-pupil {
   fill: #ef4b5f;
   stroke: none;
+}
+
+.tile-compass-ring {
+  fill: none;
+  stroke: #7be0ff;
+  stroke-width: 9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tile-compass-dot {
+  fill: #7be0ff;
+  stroke: none;
+}
+
+.tile-compass-north-tip {
+  fill: #7be0ff;
+  stroke: none;
+}
+
+.tile-compass-label {
+  fill: #bcecff;
+  font-family: var(--sans);
+  font-size: 12.6px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  paint-order: stroke;
+  stroke: rgba(12, 30, 46, 0.9);
+  stroke-width: 2.1;
+  stroke-linejoin: round;
 }
 
 .tile-tally-mark-line {
@@ -908,3 +973,4 @@
     font-size: clamp(0.72rem, 2.4vw, 0.86rem);
   }
 }
+

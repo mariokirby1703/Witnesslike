@@ -29,6 +29,7 @@ import type { TallyMarkTarget } from './tallyMarks'
 import type { TriangleTarget } from './triangles'
 import type { WaterDropletTarget } from './waterDroplet'
 import type { BlackHoleTarget } from './blackHoles'
+import type { CompassTarget } from './compass'
 
 export type EyeDirection = 'up' | 'right' | 'down' | 'left'
 
@@ -67,6 +68,7 @@ export type EyeSupportSymbols = {
   tallyTargets: TallyMarkTarget[]
   polyominoSymbols: PolyominoSymbol[]
   negatorTargets: NegatorTarget[]
+  compassTargets?: CompassTarget[]
   eyeTargets?: EyeTarget[]
 }
 
@@ -85,6 +87,7 @@ export type EyeEffects = {
 
 const DEFAULT_EYE_COLOR = '#ef4b5f'
 const EYE_DIRECTIONS: EyeDirection[] = ['up', 'right', 'down', 'left']
+const MAX_COLOR_RULE_COLORS = 3
 
 function pointKey(point: Point) {
   return `${point.x},${point.y}`
@@ -123,6 +126,7 @@ function collectColoredCells(
   colored.push(...symbols.tallyTargets)
   colored.push(...symbols.polyominoSymbols)
   colored.push(...symbols.negatorTargets)
+  colored.push(...(symbols.compassTargets ?? []))
   colored.push(...(symbols.eyeTargets ?? []))
   colored.push(...eyeTargets)
   return colored
@@ -175,6 +179,7 @@ export function resolveEyeEffects(
   const failingIndexes = new Set<number>()
   const ignoredEdgeKeys = new Set<string>()
   const ignoredVertexKeys = new Set<string>()
+  const firstIndexByEdge = new Map<string, number>()
 
   eyeTargets.forEach((target, index) => {
     const segment = firstSegmentInDirection(usedEdges, target)
@@ -182,15 +187,23 @@ export function resolveEyeEffects(
       failingIndexes.add(index)
       return
     }
+    const firstIndex = firstIndexByEdge.get(segment.edge)
+    if (firstIndex !== undefined) {
+      // Two eyes deleting the same segment is treated as invalid.
+      failingIndexes.add(firstIndex)
+      failingIndexes.add(index)
+      return
+    }
+    firstIndexByEdge.set(segment.edge, index)
     ignoredEdgeKeys.add(segment.edge)
     ignoredVertexKeys.add(pointKey(segment.a))
     ignoredVertexKeys.add(pointKey(segment.b))
   })
 
   const effectiveUsedEdges = new Set<string>(usedEdges)
-  for (const edge of ignoredEdgeKeys) {
+  ignoredEdgeKeys.forEach((edge) => {
     effectiveUsedEdges.delete(edge)
-  }
+  })
 
   return {
     failingIndexes,
@@ -256,7 +269,7 @@ export function generateEyesForEdges(
 
   let palette = [DEFAULT_EYE_COLOR]
   if (colorRuleActive) {
-    const preferred = Array.from(new Set(preferredColors ?? []))
+    const preferred = Array.from(new Set(preferredColors ?? [])).slice(0, MAX_COLOR_RULE_COLORS)
     const supportColors = Array.from(
       new Set(
         collectColoredCells(symbols, symbols.eyeTargets ?? []).map((target) => target.color)
@@ -266,10 +279,10 @@ export function generateEyesForEdges(
       preferred.length > 0
         ? preferred
         : supportColors.length > 0
-          ? shuffle(supportColors, rng)
+          ? shuffle(supportColors, rng).slice(0, MAX_COLOR_RULE_COLORS)
           : []
     const fallback = shuffle(COLOR_PALETTE.filter((color) => !base.includes(color)), rng)
-    palette = [...base, ...fallback]
+    palette = [...base, ...fallback].slice(0, MAX_COLOR_RULE_COLORS)
     if (palette.length === 0) palette = [DEFAULT_EYE_COLOR]
   }
 
@@ -288,9 +301,9 @@ export function generateEyesForEdges(
       const selectedCells = shuffle(candidateCells, localRng).slice(0, targetCount)
       if (selectedCells.length !== targetCount) continue
 
-      const usedSegments = new Set<string>()
       const colorUsage = new Map<string, number>()
       const targets: EyeTarget[] = []
+      const selectedEdgeKeys = new Set<string>()
       let failed = false
 
       for (const key of selectedCells) {
@@ -299,8 +312,7 @@ export function generateEyesForEdges(
         const directionOptions = shuffle([...directions], localRng).filter((direction) => {
           const segment = firstSegmentInDirection(usedEdges, { cellX, cellY, direction })
           if (!segment) return false
-          if (usedSegments.has(segment.edge)) return false
-          return true
+          return !selectedEdgeKeys.has(segment.edge)
         })
         const direction = directionOptions[0]
         if (!direction) {
@@ -312,7 +324,7 @@ export function generateEyesForEdges(
           failed = true
           break
         }
-        usedSegments.add(segment.edge)
+        selectedEdgeKeys.add(segment.edge)
 
         const rankedColors = shuffle([...palette], localRng).sort((a, b) => {
           const usageDiff = (colorUsage.get(a) ?? 0) - (colorUsage.get(b) ?? 0)
@@ -338,3 +350,5 @@ export function generateEyesForEdges(
 
   return null
 }
+
+

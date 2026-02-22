@@ -29,7 +29,8 @@ import type { TriangleTarget } from './triangles'
 import type { WaterDropletTarget } from './waterDroplet'
 import type { BlackHoleTarget } from './blackHoles'
 import type { TallyMarkTarget } from './tallyMarks'
-import type { EyeTarget } from './eyes'
+import { resolveEyeEffects, type EyeTarget } from './eyes'
+import type { CompassTarget } from './compass'
 
 export type ChipTarget = {
   cellX: number
@@ -58,6 +59,7 @@ export type ChipSupportSymbols = {
   negatorTargets: NegatorTarget[]
   tallyTargets?: TallyMarkTarget[]
   eyeTargets?: EyeTarget[]
+  compassTargets?: CompassTarget[]
 }
 
 export type ChipConstraintSymbols = ChipSupportSymbols & {
@@ -105,6 +107,7 @@ function collectColoredCells(
   cells.push(...symbols.negatorTargets)
   cells.push(...(symbols.tallyTargets ?? []))
   cells.push(...(symbols.eyeTargets ?? []))
+  cells.push(...(symbols.compassTargets ?? []))
   cells.push(...chipTargets)
   return cells
 }
@@ -136,7 +139,8 @@ function countSupportSymbols(symbols: ChipSupportSymbols) {
     symbols.polyominoSymbols.length +
     symbols.negatorTargets.length +
     (symbols.tallyTargets?.length ?? 0) +
-    (symbols.eyeTargets?.length ?? 0)
+    (symbols.eyeTargets?.length ?? 0) +
+    (symbols.compassTargets?.length ?? 0)
   )
 }
 
@@ -418,7 +422,11 @@ export function generateChipsForEdges(
       ...symbols,
       chipTargets: chips,
     }
-    if (checkChips(usedEdges, chipCheckSymbols)) {
+    const effectiveUsedEdges =
+      (symbols.eyeTargets?.length ?? 0) > 0
+        ? resolveEyeEffects(usedEdges, symbols.eyeTargets ?? []).effectiveUsedEdges
+        : usedEdges
+    if (checkChips(effectiveUsedEdges, chipCheckSymbols)) {
       return {
         targets: chips,
         solutionPath,
@@ -428,3 +436,5 @@ export function generateChipsForEdges(
 
   return null
 }
+
+

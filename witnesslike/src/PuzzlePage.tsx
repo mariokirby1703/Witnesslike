@@ -44,7 +44,7 @@ import { generateDotsForEdges } from './symbols/dots'
 import type { DiamondTarget } from './symbols/diamonds'
 import { generateDiamondsForEdges } from './symbols/diamonds'
 import type { GhostTarget } from './symbols/ghost'
-import { generateGhostsForEdges } from './symbols/ghost'
+import { checkGhosts, generateGhostsForEdges } from './symbols/ghost'
 import type { CrystalTarget } from './symbols/crystals'
 import { collectFailingCrystalIndexes, generateCrystalsForEdges } from './symbols/crystals'
 import type { ChipTarget } from './symbols/chips'
@@ -56,9 +56,15 @@ import { generateBlackHolesForEdges } from './symbols/blackHoles'
 import type { OpenPentagonTarget } from './symbols/openPentagons'
 import { generateOpenPentagonsForEdges } from './symbols/openPentagons'
 import type { TallyMarkTarget } from './symbols/tallyMarks'
-import { generateTallyMarksForEdges } from './symbols/tallyMarks'
+import {
+  checkTallyMarks,
+  generateTallyMarksForEdges,
+  recalculateTallyMarkTargets,
+} from './symbols/tallyMarks'
 import type { EyeTarget } from './symbols/eyes'
-import { eyeDirectionAngle, generateEyesForEdges } from './symbols/eyes'
+import { generateEyesForEdges, resolveEyeEffects } from './symbols/eyes'
+import type { CompassTarget } from './symbols/compass'
+import { generateCompassesForEdges } from './symbols/compass'
 import type { ChevronTarget } from './symbols/chevrons'
 import { chevronDirectionAngle, generateChevronsForEdges } from './symbols/chevrons'
 import type { MinesweeperNumberTarget } from './symbols/minesweeperNumbers'
@@ -143,6 +149,7 @@ type Eliminations = {
   openPentagons: number[]
   tallyMarks: number[]
   eyes: number[]
+  compasses: number[]
   polyominoes: number[]
   hexagons: number[]
 }
@@ -170,6 +177,7 @@ function emptyEliminations(): Eliminations {
     openPentagons: [],
     tallyMarks: [],
     eyes: [],
+    compasses: [],
     polyominoes: [],
     hexagons: [],
   }
@@ -202,6 +210,7 @@ function mapEliminations(
     if (symbol.kind === 'open-pentagon') mapped.openPentagons.push(symbol.index)
     if (symbol.kind === 'tally-mark') mapped.tallyMarks.push(symbol.index)
     if (symbol.kind === 'eye') mapped.eyes.push(symbol.index)
+    if (symbol.kind === 'compass') mapped.compasses.push(symbol.index)
     if (symbol.kind === 'polyomino') mapped.polyominoes.push(symbol.index)
     if (symbol.kind === 'hexagon') mapped.hexagons.push(symbol.index)
   }
@@ -283,6 +292,13 @@ function eyeDiamondPoints(centerX: number, centerY: number, size: number) {
   const halfWidth = size * 0.98
   const halfHeight = size * 0.64
   return `${centerX - halfWidth},${centerY} ${centerX},${centerY - halfHeight} ${centerX + halfWidth},${centerY} ${centerX},${centerY + halfHeight}`
+}
+
+function eyePupilOffset(direction: EyeTarget['direction']) {
+  if (direction === 'left') return { x: -0.056, y: 0 }
+  if (direction === 'up') return { x: 0, y: -0.04 }
+  if (direction === 'down') return { x: 0, y: 0.04 }
+  return { x: 0.056, y: 0 }
 }
 
 function tallyMarkSegments(
@@ -613,6 +629,7 @@ function countSymbolColors(
   openPentagonTargets: OpenPentagonTarget[],
   eyeTargets: EyeTarget[],
   tallyTargets: TallyMarkTarget[],
+  compassTargets: CompassTarget[],
   polyominoSymbols: PolyominoSymbol[],
   negatorTargets: NegatorTarget[],
   includeNegatorColors = true
@@ -638,6 +655,7 @@ function countSymbolColors(
   for (const openPentagon of openPentagonTargets) colors.add(openPentagon.color)
   for (const eye of eyeTargets) colors.add(eye.color)
   for (const tally of tallyTargets) colors.add(tally.color)
+  for (const compass of compassTargets) colors.add(compass.color)
   for (const symbol of polyominoSymbols) colors.add(symbol.color)
   if (includeNegatorColors) {
     for (const negator of negatorTargets) colors.add(negator.color)
@@ -667,6 +685,7 @@ type GeneratedSymbolSnapshot = {
   openPentagonTargets: OpenPentagonTarget[]
   eyeTargets: EyeTarget[]
   tallyTargets: TallyMarkTarget[]
+  compassTargets: CompassTarget[]
   polyominoSymbols: PolyominoSymbol[]
   negatorTargets: NegatorTarget[]
   hexTargets: HexTarget[]
@@ -694,6 +713,7 @@ function hasGeneratedSymbolForKind(kind: TileKind, snapshot: GeneratedSymbolSnap
   if (kind === 'open-pentagons') return snapshot.openPentagonTargets.length > 0
   if (kind === 'eyes') return snapshot.eyeTargets.length > 0
   if (kind === 'tally-marks') return snapshot.tallyTargets.length > 0
+  if (kind === 'compasses') return snapshot.compassTargets.length > 0
   if (kind === 'triangles') return snapshot.triangleTargets.length > 0
   if (kind === 'negator') return snapshot.negatorTargets.length > 0
   if (kind === 'polyomino') {
@@ -744,34 +764,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
 
   const allEdges = useMemo(() => listAllEdges(), [])
 
-  const {
-    puzzle,
-    activeKinds,
-    arrowTargets,
-    colorSquares,
-    starTargets,
-    triangleTargets,
-    dotTargets,
-    diamondTargets,
-    chevronTargets,
-    minesweeperTargets,
-    waterDropletTargets,
-    cardinalTargets,
-    spinnerTargets,
-    sentinelTargets,
-    ghostTargets,
-    crystalTargets,
-    chipTargets,
-    diceTargets,
-    blackHoleTargets,
-    openPentagonTargets,
-    eyeTargets,
-    tallyTargets,
-    polyominoSymbols,
-    negatorTargets,
-    hexTargets,
-    solutionPath,
-  } = useMemo(() => {
+  const generated = useMemo(() => {
     type PendingCandidate = {
       puzzle: Puzzle
       activeKinds: TileKind[]
@@ -795,6 +788,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       openPentagonTargets: OpenPentagonTarget[]
       eyeTargets: EyeTarget[]
       tallyTargets: TallyMarkTarget[]
+      compassTargets: CompassTarget[]
       polyominoSymbols: PolyominoSymbol[]
       negatorTargets: NegatorTarget[]
       hexTargets: HexTarget[]
@@ -810,12 +804,32 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
     const recentPathSignatureSet = new Set(recentPathSignatures)
     const minActive = baseKinds.length >= 2 ? 2 : 1
     const hasRequestedSymbols = baseKinds.some((kind) => kind !== 'gap-line')
+    const selectedSymbolCount = baseKinds.filter((kind) => kind !== 'gap-line').length
+    const hasEyeComboPressure =
+      baseKinds.includes('eyes') &&
+      (
+        selectedSymbolCount >= 3 ||
+        baseKinds.includes('ghost') ||
+        baseKinds.includes('crystals') ||
+        baseKinds.includes('tally-marks') ||
+        baseKinds.includes('compasses') ||
+        baseKinds.includes('open-pentagons') ||
+        baseKinds.includes('black-holes') ||
+        baseKinds.includes('chips') ||
+        baseKinds.includes('negator')
+      )
     const hasHeavyKinds =
       baseKinds.includes('negative-polyomino') ||
       baseKinds.includes('rotated-negative-polyomino') ||
-      baseKinds.includes('negator')
+      baseKinds.includes('negator') ||
+      hasEyeComboPressure
     const hasCrystalNegatorPair =
       baseKinds.includes('crystals') && baseKinds.includes('negator')
+    const hasEyeCrystalNegatorCombo =
+      baseKinds.includes('eyes') &&
+      baseKinds.includes('crystals') &&
+      baseKinds.includes('negator') &&
+      !baseKinds.includes('ghost')
     const hasNegatorCrystalGhostCombo =
       baseKinds.includes('negator') &&
       baseKinds.includes('crystals') &&
@@ -843,7 +857,6 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
     ])
     const isPolyOnlySelection =
       baseKinds.length > 0 && baseKinds.every((kind) => kind === 'gap-line' || polyKinds.has(kind))
-    const selectedSymbolCount = baseKinds.filter((kind) => kind !== 'gap-line').length
     let generationAttempts = isPolyOnlySelection
       ? hasHeavyKinds
         ? 140
@@ -871,6 +884,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
     }
     if (hasNegatorGhostCrystalPolyCombo) {
       generationAttempts = Math.min(generationAttempts, selectedSymbolCount >= 4 ? 240 : 210)
+    }
+    if (hasEyeCrystalNegatorCombo) {
+      generationAttempts = Math.min(generationAttempts, selectedSymbolCount >= 3 ? 260 : 220)
     }
     const maxPendingCandidatesBase = Math.max(
       isPolyOnlySelection ? 6 : MAX_PENDING_RECOVERY_CANDIDATES,
@@ -914,6 +930,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       openPentagonTargets: pending.openPentagonTargets,
       eyeTargets: pending.eyeTargets,
       tallyTargets: pending.tallyTargets,
+      compassTargets: pending.compassTargets,
       polyominoSymbols: pending.polyominoSymbols,
       negatorTargets: pending.negatorTargets,
       hexTargets: pending.hexTargets,
@@ -935,13 +952,15 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       ? 1_650
       : hasStressCombo
         ? 2_250
+      : hasEyeCrystalNegatorCombo
+        ? 2_100
         : Number.POSITIVE_INFINITY
     generationSeedLoop: for (const generationSeedOffset of generationSeedOffsets) {
       const generationSeed = seed + generationSeedOffset
       attemptLoop: for (let attempt = 0; attempt < generationAttempts; attempt += 1) {
       if (
         Date.now() - generationStartMs > generationSoftTimeLimitMs &&
-        (pendingCandidates.length > 0 || hasNegatorCrystalGhostCombo)
+        (pendingCandidates.length > 0 || hasNegatorCrystalGhostCombo || hasEyeCrystalNegatorCombo)
       ) {
         break generationSeedLoop
       }
@@ -993,6 +1012,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       let openPentagonTargets: OpenPentagonTarget[] = []
       let eyeTargets: EyeTarget[] = []
       let tallyTargets: TallyMarkTarget[] = []
+      let compassTargets: CompassTarget[] = []
       let polyominoSymbols: PolyominoSymbol[] = []
       let negatorTargets: NegatorTarget[] = []
       const maybeCapturePartialCandidate = () => {
@@ -1021,6 +1041,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           openPentagonTargets,
           eyeTargets,
           tallyTargets,
+          compassTargets,
           polyominoSymbols,
           negatorTargets,
           hexTargets: [],
@@ -1050,6 +1071,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           openPentagonTargets.length +
           eyeTargets.length +
           tallyTargets.length +
+          compassTargets.length +
           polyominoSymbols.length +
           negatorTargets.length
         const score = nonGapKindCount * 100 + symbolCount * 10 + solutionPath.length
@@ -1079,6 +1101,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           openPentagonTargets: [...openPentagonTargets],
           eyeTargets: [...eyeTargets],
           tallyTargets: [...tallyTargets],
+          compassTargets: [...compassTargets],
           polyominoSymbols: [...polyominoSymbols],
           negatorTargets: [...negatorTargets],
           hexTargets: [],
@@ -1172,8 +1195,15 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
 
       const requiresNegatorCrystalGhostSafety =
         active.includes('negator') && active.includes('crystals') && active.includes('ghost')
+      const crystalGenerationSymbolCount =
+        active.includes('eyes') &&
+        active.includes('crystals') &&
+        active.includes('negator') &&
+        !active.includes('ghost')
+          ? Math.max(baseKinds.length, 4)
+          : baseKinds.length
 
-      if (active.includes('crystals')) {
+      if (active.includes('crystals') && !active.includes('eyes')) {
         const blockedCrystalCells = new Set<string>([
           ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
         ])
@@ -1192,7 +1222,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           generationSeed + attempt * 31241,
           blockedCrystalCells,
           colorRuleActive,
-          baseKinds.length,
+          crystalGenerationSymbolCount,
           preferredCrystalColors,
           solutionPath ?? undefined,
           active.includes('negator'),
@@ -1207,7 +1237,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         }
       }
 
-      if (active.includes('ghost')) {
+      if (active.includes('ghost') && !active.includes('eyes')) {
         const blockedGhostCells = new Set<string>([
           ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
           ...crystalTargets.map((target) => `${target.cellX},${target.cellY}`),
@@ -1995,7 +2025,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         }
       }
 
-      if (active.includes('tally-marks')) {
+      if (active.includes('tally-marks') && !active.includes('eyes')) {
         const blockedTallyCells = new Set<string>([
           ...arrowTargets.map((target) => `${target.cellX},${target.cellY}`),
           ...colorSquares.map((target) => `${target.cellX},${target.cellY}`),
@@ -2073,395 +2103,6 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         if (tallyResult) {
           tallyTargets = tallyResult.targets
           solutionPath = solutionPath ?? tallyResult.solutionPath
-          maybeCapturePartialCandidate()
-        } else {
-          continue attemptLoop
-        }
-      }
-
-      if (active.includes('black-holes')) {
-        const blockedBlackHoleCells = new Set<string>([
-          ...arrowTargets.map((arrow) => `${arrow.cellX},${arrow.cellY}`),
-          ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
-          ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
-          ...dotTargets.map((dot) => `${dot.cellX},${dot.cellY}`),
-          ...diamondTargets.map((diamond) => `${diamond.cellX},${diamond.cellY}`),
-          ...chevronTargets.map((chevron) => `${chevron.cellX},${chevron.cellY}`),
-          ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...waterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...cardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...spinnerTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...crystalTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...diceTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...tallyTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
-        ])
-        const preferredBlackHoleColors = colorRuleActive
-          ? biasPreferredColors(
-              Array.from(new Set([
-                ...arrowTargets.map((arrow) => arrow.color),
-                ...colorSquares.map((square) => square.color),
-                ...triangleTargets.map((triangle) => triangle.color),
-                ...dotTargets.map((dot) => dot.color),
-                ...diamondTargets.map((diamond) => diamond.color),
-                ...chevronTargets.map((chevron) => chevron.color),
-                ...minesweeperTargets.map((target) => target.color),
-                ...waterDropletTargets.map((target) => target.color),
-                ...cardinalTargets.map((target) => target.color),
-                ...spinnerTargets.map((target) => target.color),
-                ...ghostTargets.map((target) => target.color),
-                ...crystalTargets.map((target) => target.color),
-                ...diceTargets.map((target) => target.color),
-                ...tallyTargets.map((target) => target.color),
-                ...polyominoSymbols.map((symbol) => symbol.color),
-              ])).slice(0, MAX_SYMBOL_COLORS),
-              rng
-            )
-          : undefined
-        const blackHoleResult = generateBlackHolesForEdges(
-          edges,
-          generationSeed + attempt * 31129,
-          baseKinds.length,
-          blockedBlackHoleCells,
-          colorRuleActive,
-          {
-            arrowTargets,
-            colorSquares,
-            starTargets,
-            triangleTargets,
-            dotTargets,
-            diamondTargets,
-            chevronTargets,
-            minesweeperTargets,
-            waterDropletTargets,
-            cardinalTargets,
-            spinnerTargets,
-            sentinelTargets,
-            ghostTargets,
-            crystalTargets,
-            chipTargets,
-            diceTargets,
-            tallyTargets,
-            polyominoSymbols,
-            negatorTargets,
-            blackHoleTargets,
-          },
-          preferredBlackHoleColors,
-          solutionPath ?? undefined
-        )
-        if (blackHoleResult) {
-          blackHoleTargets = blackHoleResult.targets
-          solutionPath = solutionPath ?? blackHoleResult.solutionPath
-          maybeCapturePartialCandidate()
-        } else {
-          continue attemptLoop
-        }
-      }
-
-      if (active.includes('chips')) {
-        const blockedChipCells = new Set<string>([
-          ...arrowTargets.map((arrow) => `${arrow.cellX},${arrow.cellY}`),
-          ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
-          ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
-          ...dotTargets.map((dot) => `${dot.cellX},${dot.cellY}`),
-          ...diamondTargets.map((diamond) => `${diamond.cellX},${diamond.cellY}`),
-          ...chevronTargets.map((chevron) => `${chevron.cellX},${chevron.cellY}`),
-          ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...waterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...cardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...spinnerTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...crystalTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...diceTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...blackHoleTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...tallyTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
-        ])
-        const preferredChipColors = colorRuleActive
-          ? biasPreferredColors(
-              Array.from(new Set([
-                ...arrowTargets.map((arrow) => arrow.color),
-                ...colorSquares.map((square) => square.color),
-                ...triangleTargets.map((triangle) => triangle.color),
-                ...dotTargets.map((dot) => dot.color),
-                ...diamondTargets.map((diamond) => diamond.color),
-                ...chevronTargets.map((chevron) => chevron.color),
-                ...minesweeperTargets.map((target) => target.color),
-                ...waterDropletTargets.map((target) => target.color),
-                ...cardinalTargets.map((target) => target.color),
-                ...spinnerTargets.map((target) => target.color),
-                ...ghostTargets.map((target) => target.color),
-                ...crystalTargets.map((target) => target.color),
-                ...diceTargets.map((target) => target.color),
-                ...blackHoleTargets.map((target) => target.color),
-                ...tallyTargets.map((target) => target.color),
-                ...polyominoSymbols.map((symbol) => symbol.color),
-              ])).slice(0, MAX_SYMBOL_COLORS),
-              rng
-            )
-          : undefined
-        const chipResult = generateChipsForEdges(
-          edges,
-          generationSeed + attempt * 30989,
-          baseKinds.length,
-          blockedChipCells,
-          colorRuleActive,
-          {
-            arrowTargets,
-            colorSquares,
-            starTargets,
-            triangleTargets,
-            dotTargets,
-            diamondTargets,
-            chevronTargets,
-            minesweeperTargets,
-            waterDropletTargets,
-            cardinalTargets,
-            spinnerTargets,
-            sentinelTargets,
-            ghostTargets,
-            crystalTargets,
-            blackHoleTargets,
-            diceTargets,
-            tallyTargets,
-            polyominoSymbols,
-            negatorTargets,
-          },
-          preferredChipColors,
-          solutionPath ?? undefined
-        )
-        if (chipResult) {
-          chipTargets = chipResult.targets
-          solutionPath = solutionPath ?? chipResult.solutionPath
-          maybeCapturePartialCandidate()
-        } else {
-          continue attemptLoop
-        }
-      }
-
-      if (active.includes('stars')) {
-        const minPairs =
-          baseKinds.length === 1 && baseKinds[0] === 'stars'
-            ? 3
-            : baseKinds.length <= 2
-              ? 2
-              : 1
-        const starResult = generateStarsForEdges(
-          edges,
-          generationSeed + attempt * 5003,
-          minPairs,
-          active.includes('arrows') ? arrowTargets : [],
-          active.includes('color-squares') ? colorSquares : [],
-          active.includes('polyomino') ||
-            active.includes('rotated-polyomino') ||
-            active.includes('negative-polyomino') ||
-            active.includes('rotated-negative-polyomino')
-            ? polyominoSymbols
-            : [],
-          active.includes('triangles') ? triangleTargets : [],
-          active.includes('dots') ? dotTargets : [],
-          active.includes('diamonds') ? diamondTargets : [],
-          active.includes('chevrons') ? chevronTargets : [],
-          active.includes('minesweeper-numbers') ? minesweeperTargets : [],
-          active.includes('water-droplet') ? waterDropletTargets : [],
-          active.includes('cardinal') ? cardinalTargets : [],
-          active.includes('spinner') ? spinnerTargets : [],
-          active.includes('ghost') ? ghostTargets : [],
-          active.includes('crystals') ? crystalTargets : [],
-          active.includes('chips') ? chipTargets : [],
-          active.includes('dice') ? diceTargets : [],
-          active.includes('black-holes') ? blackHoleTargets : [],
-          active.includes('tally-marks') ? tallyTargets : [],
-          active.includes('eyes') ? eyeTargets : [],
-          active.includes('negator'),
-          solutionPath ?? undefined,
-          baseKinds.length
-        )
-        if (starResult) {
-          starTargets = starResult.stars
-          solutionPath = solutionPath ?? starResult.solutionPath
-        } else {
-          continue attemptLoop
-        }
-      }
-
-      let hexTargets: HexTarget[] = []
-      if (active.includes('hexagon')) {
-        hexTargets = generateHexTargets(edges, hexSeed, solutionPath ?? undefined, {
-          forceFullGrid: shouldForceFullGridHex,
-        })
-      }
-
-      if (active.includes('sentinel')) {
-        const blockedSentinelCells = new Set<string>([
-          ...arrowTargets.map((arrow) => `${arrow.cellX},${arrow.cellY}`),
-          ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
-          ...starTargets.map((star) => `${star.cellX},${star.cellY}`),
-          ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
-          ...dotTargets.map((dot) => `${dot.cellX},${dot.cellY}`),
-          ...diamondTargets.map((diamond) => `${diamond.cellX},${diamond.cellY}`),
-          ...chevronTargets.map((chevron) => `${chevron.cellX},${chevron.cellY}`),
-          ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...waterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...cardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...spinnerTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...crystalTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...chipTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...diceTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...blackHoleTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...tallyTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
-        ])
-        const preferredSentinelColors = colorRuleActive
-          ? biasPreferredColors(
-              Array.from(new Set([
-                ...arrowTargets.map((arrow) => arrow.color),
-                ...colorSquares.map((square) => square.color),
-                ...starTargets.map((star) => star.color),
-                ...triangleTargets.map((triangle) => triangle.color),
-                ...dotTargets.map((dot) => dot.color),
-                ...diamondTargets.map((diamond) => diamond.color),
-                ...chevronTargets.map((chevron) => chevron.color),
-                ...minesweeperTargets.map((target) => target.color),
-                ...waterDropletTargets.map((target) => target.color),
-                ...cardinalTargets.map((target) => target.color),
-                ...spinnerTargets.map((target) => target.color),
-                ...ghostTargets.map((target) => target.color),
-                ...crystalTargets.map((target) => target.color),
-                ...chipTargets.map((target) => target.color),
-                ...diceTargets.map((target) => target.color),
-                ...blackHoleTargets.map((target) => target.color),
-                ...tallyTargets.map((target) => target.color),
-                ...polyominoSymbols.map((symbol) => symbol.color),
-              ])).slice(0, MAX_SYMBOL_COLORS),
-              rng
-            )
-          : undefined
-        const sentinelResult = generateSentinelsForEdges(
-          edges,
-          generationSeed + attempt * 31033,
-          baseKinds.length,
-          blockedSentinelCells,
-          colorRuleActive,
-          {
-            arrowTargets,
-            colorSquares,
-            starTargets,
-            triangleTargets,
-            dotTargets,
-            diamondTargets,
-            chevronTargets,
-            minesweeperTargets,
-            waterDropletTargets,
-            cardinalTargets,
-            spinnerTargets,
-            ghostTargets,
-            crystalTargets,
-            chipTargets,
-            diceTargets,
-            blackHoleTargets,
-            openPentagonTargets,
-            eyeTargets,
-            tallyTargets,
-            polyominoSymbols,
-            negatorTargets,
-            hexTargets,
-          },
-          preferredSentinelColors,
-          solutionPath ?? undefined
-        )
-        if (sentinelResult) {
-          sentinelTargets = sentinelResult.targets
-          solutionPath = solutionPath ?? sentinelResult.solutionPath
-        } else {
-          continue attemptLoop
-        }
-      }
-
-      if (active.includes('open-pentagons')) {
-        const blockedOpenPentagonCells = new Set<string>([
-          ...arrowTargets.map((arrow) => `${arrow.cellX},${arrow.cellY}`),
-          ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
-          ...starTargets.map((star) => `${star.cellX},${star.cellY}`),
-          ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
-          ...dotTargets.map((dot) => `${dot.cellX},${dot.cellY}`),
-          ...diamondTargets.map((diamond) => `${diamond.cellX},${diamond.cellY}`),
-          ...chevronTargets.map((chevron) => `${chevron.cellX},${chevron.cellY}`),
-          ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...waterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...cardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...spinnerTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...sentinelTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...crystalTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...chipTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...diceTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...blackHoleTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...tallyTargets.map((target) => `${target.cellX},${target.cellY}`),
-          ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
-        ])
-        const preferredOpenPentagonColors = colorRuleActive
-          ? biasPreferredColors(
-              Array.from(new Set([
-                ...arrowTargets.map((arrow) => arrow.color),
-                ...colorSquares.map((square) => square.color),
-                ...starTargets.map((star) => star.color),
-                ...triangleTargets.map((triangle) => triangle.color),
-                ...dotTargets.map((dot) => dot.color),
-                ...diamondTargets.map((diamond) => diamond.color),
-                ...chevronTargets.map((chevron) => chevron.color),
-                ...minesweeperTargets.map((target) => target.color),
-                ...waterDropletTargets.map((target) => target.color),
-                ...cardinalTargets.map((target) => target.color),
-                ...spinnerTargets.map((target) => target.color),
-                ...sentinelTargets.map((target) => target.color),
-                ...ghostTargets.map((target) => target.color),
-                ...crystalTargets.map((target) => target.color),
-                ...chipTargets.map((target) => target.color),
-                ...diceTargets.map((target) => target.color),
-                ...blackHoleTargets.map((target) => target.color),
-                ...tallyTargets.map((target) => target.color),
-                ...polyominoSymbols.map((symbol) => symbol.color),
-              ])).slice(0, MAX_SYMBOL_COLORS),
-              rng
-            )
-          : undefined
-        const openPentagonResult = generateOpenPentagonsForEdges(
-          edges,
-          generationSeed + attempt * 31123,
-          baseKinds.length,
-          blockedOpenPentagonCells,
-          colorRuleActive,
-          {
-            arrowTargets,
-            colorSquares,
-            starTargets,
-            triangleTargets,
-            dotTargets,
-            diamondTargets,
-            chevronTargets,
-            minesweeperTargets,
-            waterDropletTargets,
-            cardinalTargets,
-            spinnerTargets,
-            sentinelTargets,
-            ghostTargets,
-            crystalTargets,
-            chipTargets,
-            diceTargets,
-            blackHoleTargets,
-            tallyTargets,
-            polyominoSymbols,
-            negatorTargets,
-          },
-          preferredOpenPentagonColors,
-          solutionPath ?? undefined
-        )
-        if (openPentagonResult) {
-          openPentagonTargets = openPentagonResult.targets
-          solutionPath = solutionPath ?? openPentagonResult.solutionPath
           maybeCapturePartialCandidate()
         } else {
           continue attemptLoop
@@ -2560,6 +2201,915 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         }
       }
 
+      if (active.includes('eyes') && active.includes('crystals')) {
+        const blockedCrystalCells = new Set<string>([
+          ...arrowTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...colorSquares.map((target) => `${target.cellX},${target.cellY}`),
+          ...starTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...triangleTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...dotTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...diamondTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...chevronTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...waterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...cardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...spinnerTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...sentinelTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...chipTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...diceTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...eyeTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...tallyTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...polyominoSymbols.map((target) => `${target.cellX},${target.cellY}`),
+        ])
+        const preferredCrystalColors = colorRuleActive
+          ? biasPreferredColors(
+              Array.from(new Set([
+                ...arrowTargets.map((target) => target.color),
+                ...colorSquares.map((target) => target.color),
+                ...starTargets.map((target) => target.color),
+                ...triangleTargets.map((target) => target.color),
+                ...dotTargets.map((target) => target.color),
+                ...diamondTargets.map((target) => target.color),
+                ...chevronTargets.map((target) => target.color),
+                ...minesweeperTargets.map((target) => target.color),
+                ...waterDropletTargets.map((target) => target.color),
+                ...cardinalTargets.map((target) => target.color),
+                ...spinnerTargets.map((target) => target.color),
+                ...sentinelTargets.map((target) => target.color),
+                ...ghostTargets.map((target) => target.color),
+                ...chipTargets.map((target) => target.color),
+                ...diceTargets.map((target) => target.color),
+                ...eyeTargets.map((target) => target.color),
+                ...tallyTargets.map((target) => target.color),
+                ...polyominoSymbols.map((target) => target.color),
+              ])).slice(0, MAX_SYMBOL_COLORS),
+              rng
+            )
+          : undefined
+        const crystalResult = generateCrystalsForEdges(
+          edges,
+          generationSeed + attempt * 31241,
+          blockedCrystalCells,
+          colorRuleActive,
+          crystalGenerationSymbolCount,
+          preferredCrystalColors,
+          solutionPath ?? undefined,
+          active.includes('negator'),
+          requiresNegatorCrystalGhostSafety
+        )
+        if (!crystalResult) {
+          continue attemptLoop
+        }
+        const crystalEffectiveUsedEdges = resolveEyeEffects(
+          edgesFromPath(crystalResult.solutionPath),
+          eyeTargets
+        ).effectiveUsedEdges
+        const failingCrystalCount = collectFailingCrystalIndexes(
+          crystalEffectiveUsedEdges,
+          crystalResult.targets
+        ).size
+        if (
+          (!requiresNegatorCrystalGhostSafety && failingCrystalCount > 0) ||
+          (requiresNegatorCrystalGhostSafety && failingCrystalCount === 0)
+        ) {
+          continue attemptLoop
+        }
+        crystalTargets = crystalResult.targets
+        solutionPath = crystalResult.solutionPath
+        maybeCapturePartialCandidate()
+      }
+
+      if (active.includes('eyes') && active.includes('ghost')) {
+        const blockedGhostCells = new Set<string>([
+          ...arrowTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...colorSquares.map((target) => `${target.cellX},${target.cellY}`),
+          ...starTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...triangleTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...dotTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...diamondTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...chevronTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...waterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...cardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...spinnerTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...sentinelTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...crystalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...chipTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...diceTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...eyeTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...tallyTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...polyominoSymbols.map((target) => `${target.cellX},${target.cellY}`),
+        ])
+        const preferredGhostColors = colorRuleActive
+          ? biasPreferredColors(
+              Array.from(new Set([
+                ...arrowTargets.map((target) => target.color),
+                ...colorSquares.map((target) => target.color),
+                ...starTargets.map((target) => target.color),
+                ...triangleTargets.map((target) => target.color),
+                ...dotTargets.map((target) => target.color),
+                ...diamondTargets.map((target) => target.color),
+                ...chevronTargets.map((target) => target.color),
+                ...minesweeperTargets.map((target) => target.color),
+                ...waterDropletTargets.map((target) => target.color),
+                ...cardinalTargets.map((target) => target.color),
+                ...spinnerTargets.map((target) => target.color),
+                ...sentinelTargets.map((target) => target.color),
+                ...crystalTargets.map((target) => target.color),
+                ...chipTargets.map((target) => target.color),
+                ...diceTargets.map((target) => target.color),
+                ...eyeTargets.map((target) => target.color),
+                ...tallyTargets.map((target) => target.color),
+                ...polyominoSymbols.map((target) => target.color),
+              ])).slice(0, MAX_SYMBOL_COLORS),
+              rng
+            )
+          : undefined
+        const ghostPlacementAttempts = requiresNegatorCrystalGhostSafety ? 4 : 1
+        let acceptedGhostTargets: GhostTarget[] | null = null
+        let acceptedGhostPath: Point[] | null = null
+        for (let ghostAttempt = 0; ghostAttempt < ghostPlacementAttempts; ghostAttempt += 1) {
+          const ghostResult = generateGhostsForEdges(
+            edges,
+            generationSeed + attempt * 30967 + ghostAttempt * 173,
+            blockedGhostCells,
+            colorRuleActive,
+            baseKinds.length,
+            preferredGhostColors,
+            solutionPath ?? undefined,
+            active.includes('crystals') && !requiresNegatorCrystalGhostSafety
+          )
+          if (!ghostResult) continue
+          const candidateUsedEdges = resolveEyeEffects(
+            edgesFromPath(ghostResult.solutionPath),
+            eyeTargets
+          ).effectiveUsedEdges
+          if (!checkGhosts(candidateUsedEdges, ghostResult.targets)) {
+            continue
+          }
+          if (requiresNegatorCrystalGhostSafety) {
+            const failingCrystalIndexes = Array.from(
+              collectFailingCrystalIndexes(candidateUsedEdges, crystalTargets)
+            )
+            if (failingCrystalIndexes.length !== 1) {
+              continue
+            }
+            const regions = buildCellRegions(candidateUsedEdges)
+            const occupiedCells = new Set<string>([
+              ...arrowTargets.map((target) => `${target.cellX},${target.cellY}`),
+              ...colorSquares.map((target) => `${target.cellX},${target.cellY}`),
+              ...starTargets.map((target) => `${target.cellX},${target.cellY}`),
+              ...triangleTargets.map((target) => `${target.cellX},${target.cellY}`),
+              ...dotTargets.map((target) => `${target.cellX},${target.cellY}`),
+              ...diamondTargets.map((target) => `${target.cellX},${target.cellY}`),
+              ...chevronTargets.map((target) => `${target.cellX},${target.cellY}`),
+              ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
+              ...waterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
+              ...cardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
+              ...spinnerTargets.map((target) => `${target.cellX},${target.cellY}`),
+              ...sentinelTargets.map((target) => `${target.cellX},${target.cellY}`),
+              ...ghostResult.targets.map((target) => `${target.cellX},${target.cellY}`),
+              ...crystalTargets.map((target) => `${target.cellX},${target.cellY}`),
+              ...chipTargets.map((target) => `${target.cellX},${target.cellY}`),
+              ...diceTargets.map((target) => `${target.cellX},${target.cellY}`),
+              ...eyeTargets.map((target) => `${target.cellX},${target.cellY}`),
+              ...polyominoSymbols.map((target) => `${target.cellX},${target.cellY}`),
+            ])
+            const failingCrystalRegions = new Set<number>()
+            for (const crystalIndex of failingCrystalIndexes) {
+              const crystal = crystalTargets[crystalIndex]
+              if (!crystal) continue
+              const region = regions.get(`${crystal.cellX},${crystal.cellY}`)
+              if (region !== undefined) failingCrystalRegions.add(region)
+            }
+            let hasSpareNegatorCell = true
+            for (const region of failingCrystalRegions) {
+              let regionHasSpare = false
+              for (let y = 0; y < 4; y += 1) {
+                for (let x = 0; x < 4; x += 1) {
+                  if (regions.get(`${x},${y}`) !== region) continue
+                  if (!occupiedCells.has(`${x},${y}`)) {
+                    regionHasSpare = true
+                    break
+                  }
+                }
+                if (regionHasSpare) break
+              }
+              if (!regionHasSpare) {
+                hasSpareNegatorCell = false
+                break
+              }
+            }
+            if (!hasSpareNegatorCell) continue
+          }
+          acceptedGhostTargets = ghostResult.targets
+          acceptedGhostPath = ghostResult.solutionPath
+          break
+        }
+        if (!acceptedGhostTargets || !acceptedGhostPath) {
+          continue attemptLoop
+        }
+        ghostTargets = acceptedGhostTargets
+        solutionPath = acceptedGhostPath
+        maybeCapturePartialCandidate()
+      }
+
+      if (active.includes('eyes') && active.includes('tally-marks')) {
+        const blockedTallyCells = new Set<string>([
+          ...arrowTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...colorSquares.map((target) => `${target.cellX},${target.cellY}`),
+          ...triangleTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...dotTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...diamondTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...chevronTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...waterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...cardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...spinnerTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...sentinelTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...crystalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...chipTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...diceTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...eyeTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...polyominoSymbols.map((target) => `${target.cellX},${target.cellY}`),
+        ])
+        const preferredTallyColors = colorRuleActive
+          ? biasPreferredColors(
+              Array.from(new Set([
+                ...arrowTargets.map((target) => target.color),
+                ...colorSquares.map((target) => target.color),
+                ...triangleTargets.map((target) => target.color),
+                ...dotTargets.map((target) => target.color),
+                ...diamondTargets.map((target) => target.color),
+                ...chevronTargets.map((target) => target.color),
+                ...minesweeperTargets.map((target) => target.color),
+                ...waterDropletTargets.map((target) => target.color),
+                ...cardinalTargets.map((target) => target.color),
+                ...spinnerTargets.map((target) => target.color),
+                ...sentinelTargets.map((target) => target.color),
+                ...ghostTargets.map((target) => target.color),
+                ...crystalTargets.map((target) => target.color),
+                ...chipTargets.map((target) => target.color),
+                ...diceTargets.map((target) => target.color),
+                ...eyeTargets.map((target) => target.color),
+                ...polyominoSymbols.map((target) => target.color),
+              ])).slice(0, MAX_SYMBOL_COLORS),
+              rng
+            )
+          : undefined
+        const tallyResult = generateTallyMarksForEdges(
+          edges,
+          generationSeed + attempt * 30957,
+          baseKinds.length,
+          blockedTallyCells,
+          colorRuleActive,
+          {
+            arrowTargets,
+            colorSquares,
+            starTargets,
+            triangleTargets,
+            dotTargets,
+            diamondTargets,
+            chevronTargets,
+            minesweeperTargets,
+            waterDropletTargets,
+            cardinalTargets,
+            spinnerTargets,
+            sentinelTargets,
+            ghostTargets,
+            crystalTargets,
+            chipTargets,
+            diceTargets,
+            blackHoleTargets,
+            openPentagonTargets,
+            eyeTargets,
+            polyominoSymbols,
+            negatorTargets,
+            tallyTargets,
+          },
+          preferredTallyColors,
+          solutionPath ?? undefined
+        )
+        if (!tallyResult) {
+          continue attemptLoop
+        }
+        const tallyEffectiveUsedEdges = resolveEyeEffects(
+          edgesFromPath(tallyResult.solutionPath),
+          eyeTargets
+        ).effectiveUsedEdges
+        if (!checkTallyMarks(tallyEffectiveUsedEdges, tallyResult.targets)) {
+          continue attemptLoop
+        }
+        tallyTargets = tallyResult.targets
+        solutionPath = solutionPath ?? tallyResult.solutionPath
+        maybeCapturePartialCandidate()
+      }
+
+      if (active.includes('compasses')) {
+        const blockedCompassCells = new Set<string>([
+          ...arrowTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...colorSquares.map((target) => `${target.cellX},${target.cellY}`),
+          ...starTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...triangleTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...dotTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...diamondTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...chevronTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...waterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...cardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...spinnerTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...sentinelTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...crystalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...chipTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...diceTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...blackHoleTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...openPentagonTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...eyeTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...tallyTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...polyominoSymbols.map((target) => `${target.cellX},${target.cellY}`),
+        ])
+        const preferredCompassColors = colorRuleActive
+          ? biasPreferredColors(
+              Array.from(new Set([
+                ...arrowTargets.map((target) => target.color),
+                ...colorSquares.map((target) => target.color),
+                ...starTargets.map((target) => target.color),
+                ...triangleTargets.map((target) => target.color),
+                ...dotTargets.map((target) => target.color),
+                ...diamondTargets.map((target) => target.color),
+                ...chevronTargets.map((target) => target.color),
+                ...minesweeperTargets.map((target) => target.color),
+                ...waterDropletTargets.map((target) => target.color),
+                ...cardinalTargets.map((target) => target.color),
+                ...spinnerTargets.map((target) => target.color),
+                ...sentinelTargets.map((target) => target.color),
+                ...ghostTargets.map((target) => target.color),
+                ...crystalTargets.map((target) => target.color),
+                ...chipTargets.map((target) => target.color),
+                ...diceTargets.map((target) => target.color),
+                ...blackHoleTargets.map((target) => target.color),
+                ...openPentagonTargets.map((target) => target.color),
+                ...eyeTargets.map((target) => target.color),
+                ...tallyTargets.map((target) => target.color),
+                ...polyominoSymbols.map((target) => target.color),
+              ])).slice(0, MAX_SYMBOL_COLORS),
+              rng
+            )
+          : undefined
+        const compassResult = generateCompassesForEdges(
+          edges,
+          generationSeed + attempt * 31199,
+          baseKinds.length,
+          blockedCompassCells,
+          colorRuleActive,
+          {
+            arrowTargets,
+            colorSquares,
+            starTargets,
+            triangleTargets,
+            dotTargets,
+            diamondTargets,
+            chevronTargets,
+            minesweeperTargets,
+            waterDropletTargets,
+            cardinalTargets,
+            spinnerTargets,
+            sentinelTargets,
+            ghostTargets,
+            crystalTargets,
+            chipTargets,
+            diceTargets,
+            blackHoleTargets,
+            openPentagonTargets,
+            tallyTargets,
+            eyeTargets,
+            polyominoSymbols,
+            negatorTargets,
+            compassTargets,
+          },
+          preferredCompassColors,
+          solutionPath ?? undefined
+        )
+        if (compassResult) {
+          compassTargets = compassResult.targets
+          solutionPath = solutionPath ?? compassResult.solutionPath
+          maybeCapturePartialCandidate()
+        } else {
+          continue attemptLoop
+        }
+      }
+
+      if (active.includes('black-holes')) {
+        const blockedBlackHoleCells = new Set<string>([
+          ...arrowTargets.map((arrow) => `${arrow.cellX},${arrow.cellY}`),
+          ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
+          ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+          ...dotTargets.map((dot) => `${dot.cellX},${dot.cellY}`),
+          ...diamondTargets.map((diamond) => `${diamond.cellX},${diamond.cellY}`),
+          ...chevronTargets.map((chevron) => `${chevron.cellX},${chevron.cellY}`),
+          ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...waterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...cardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...spinnerTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...crystalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...diceTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...eyeTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...tallyTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...compassTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
+        ])
+        const preferredBlackHoleColors = colorRuleActive
+          ? biasPreferredColors(
+              Array.from(new Set([
+                ...arrowTargets.map((arrow) => arrow.color),
+                ...colorSquares.map((square) => square.color),
+                ...triangleTargets.map((triangle) => triangle.color),
+                ...dotTargets.map((dot) => dot.color),
+                ...diamondTargets.map((diamond) => diamond.color),
+                ...chevronTargets.map((chevron) => chevron.color),
+                ...minesweeperTargets.map((target) => target.color),
+                ...waterDropletTargets.map((target) => target.color),
+                ...cardinalTargets.map((target) => target.color),
+                ...spinnerTargets.map((target) => target.color),
+                ...ghostTargets.map((target) => target.color),
+                ...crystalTargets.map((target) => target.color),
+                ...diceTargets.map((target) => target.color),
+                ...eyeTargets.map((target) => target.color),
+                ...tallyTargets.map((target) => target.color),
+                ...compassTargets.map((target) => target.color),
+                ...polyominoSymbols.map((symbol) => symbol.color),
+              ])).slice(0, MAX_SYMBOL_COLORS),
+              rng
+            )
+          : undefined
+        const blackHoleResult = generateBlackHolesForEdges(
+          edges,
+          generationSeed + attempt * 31129,
+          baseKinds.length,
+          blockedBlackHoleCells,
+          colorRuleActive,
+          {
+            arrowTargets,
+            colorSquares,
+            starTargets,
+            triangleTargets,
+            dotTargets,
+            diamondTargets,
+            chevronTargets,
+            minesweeperTargets,
+            waterDropletTargets,
+            cardinalTargets,
+            spinnerTargets,
+            sentinelTargets,
+            ghostTargets,
+            crystalTargets,
+            chipTargets,
+            diceTargets,
+            eyeTargets,
+            tallyTargets,
+            compassTargets,
+            polyominoSymbols,
+            negatorTargets,
+            blackHoleTargets,
+          },
+          preferredBlackHoleColors,
+          solutionPath ?? undefined
+        )
+        if (blackHoleResult) {
+          blackHoleTargets = blackHoleResult.targets
+          solutionPath = solutionPath ?? blackHoleResult.solutionPath
+          maybeCapturePartialCandidate()
+        } else {
+          continue attemptLoop
+        }
+      }
+
+      if (active.includes('chips')) {
+        const blockedChipCells = new Set<string>([
+          ...arrowTargets.map((arrow) => `${arrow.cellX},${arrow.cellY}`),
+          ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
+          ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+          ...dotTargets.map((dot) => `${dot.cellX},${dot.cellY}`),
+          ...diamondTargets.map((diamond) => `${diamond.cellX},${diamond.cellY}`),
+          ...chevronTargets.map((chevron) => `${chevron.cellX},${chevron.cellY}`),
+          ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...waterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...cardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...spinnerTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...crystalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...diceTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...blackHoleTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...eyeTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...tallyTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...compassTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
+        ])
+        const preferredChipColors = colorRuleActive
+          ? biasPreferredColors(
+              Array.from(new Set([
+                ...arrowTargets.map((arrow) => arrow.color),
+                ...colorSquares.map((square) => square.color),
+                ...triangleTargets.map((triangle) => triangle.color),
+                ...dotTargets.map((dot) => dot.color),
+                ...diamondTargets.map((diamond) => diamond.color),
+                ...chevronTargets.map((chevron) => chevron.color),
+                ...minesweeperTargets.map((target) => target.color),
+                ...waterDropletTargets.map((target) => target.color),
+                ...cardinalTargets.map((target) => target.color),
+                ...spinnerTargets.map((target) => target.color),
+                ...ghostTargets.map((target) => target.color),
+                ...crystalTargets.map((target) => target.color),
+                ...diceTargets.map((target) => target.color),
+                ...blackHoleTargets.map((target) => target.color),
+                ...eyeTargets.map((target) => target.color),
+                ...tallyTargets.map((target) => target.color),
+                ...compassTargets.map((target) => target.color),
+                ...polyominoSymbols.map((symbol) => symbol.color),
+              ])).slice(0, MAX_SYMBOL_COLORS),
+              rng
+            )
+          : undefined
+        const chipResult = generateChipsForEdges(
+          edges,
+          generationSeed + attempt * 30989,
+          baseKinds.length,
+          blockedChipCells,
+          colorRuleActive,
+          {
+            arrowTargets,
+            colorSquares,
+            starTargets,
+            triangleTargets,
+            dotTargets,
+            diamondTargets,
+            chevronTargets,
+            minesweeperTargets,
+            waterDropletTargets,
+            cardinalTargets,
+            spinnerTargets,
+            sentinelTargets,
+            ghostTargets,
+            crystalTargets,
+            blackHoleTargets,
+            eyeTargets,
+            diceTargets,
+            tallyTargets,
+            compassTargets,
+            polyominoSymbols,
+            negatorTargets,
+          },
+          preferredChipColors,
+          solutionPath ?? undefined
+        )
+        if (chipResult) {
+          chipTargets = chipResult.targets
+          solutionPath = solutionPath ?? chipResult.solutionPath
+          maybeCapturePartialCandidate()
+        } else {
+          continue attemptLoop
+        }
+      }
+
+      if (active.includes('stars')) {
+        const minPairs =
+          baseKinds.length === 1 && baseKinds[0] === 'stars'
+            ? 3
+            : baseKinds.length <= 2
+              ? 2
+              : 1
+        const starResult = generateStarsForEdges(
+          edges,
+          generationSeed + attempt * 5003,
+          minPairs,
+          active.includes('arrows') ? arrowTargets : [],
+          active.includes('color-squares') ? colorSquares : [],
+          active.includes('polyomino') ||
+            active.includes('rotated-polyomino') ||
+            active.includes('negative-polyomino') ||
+            active.includes('rotated-negative-polyomino')
+            ? polyominoSymbols
+            : [],
+          active.includes('triangles') ? triangleTargets : [],
+          active.includes('dots') ? dotTargets : [],
+          active.includes('diamonds') ? diamondTargets : [],
+          active.includes('chevrons') ? chevronTargets : [],
+          active.includes('minesweeper-numbers') ? minesweeperTargets : [],
+          active.includes('water-droplet') ? waterDropletTargets : [],
+          active.includes('cardinal') ? cardinalTargets : [],
+          active.includes('spinner') ? spinnerTargets : [],
+          active.includes('ghost') ? ghostTargets : [],
+          active.includes('crystals') ? crystalTargets : [],
+          active.includes('chips') ? chipTargets : [],
+          active.includes('dice') ? diceTargets : [],
+          active.includes('black-holes') ? blackHoleTargets : [],
+          active.includes('tally-marks') ? tallyTargets : [],
+          active.includes('eyes') ? eyeTargets : [],
+          active.includes('negator'),
+          solutionPath ?? undefined,
+          baseKinds.length,
+          active.includes('compasses') ? compassTargets : []
+        )
+        if (starResult) {
+          starTargets = starResult.stars
+          solutionPath = solutionPath ?? starResult.solutionPath
+        } else {
+          continue attemptLoop
+        }
+      }
+
+      let hexTargets: HexTarget[] = []
+      if (active.includes('hexagon')) {
+        hexTargets = generateHexTargets(edges, hexSeed, solutionPath ?? undefined, {
+          forceFullGrid: shouldForceFullGridHex,
+        })
+      }
+
+      if (active.includes('sentinel')) {
+        const blockedSentinelCells = new Set<string>([
+          ...arrowTargets.map((arrow) => `${arrow.cellX},${arrow.cellY}`),
+          ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
+          ...starTargets.map((star) => `${star.cellX},${star.cellY}`),
+          ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+          ...dotTargets.map((dot) => `${dot.cellX},${dot.cellY}`),
+          ...diamondTargets.map((diamond) => `${diamond.cellX},${diamond.cellY}`),
+          ...chevronTargets.map((chevron) => `${chevron.cellX},${chevron.cellY}`),
+          ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...waterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...cardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...spinnerTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...crystalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...chipTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...diceTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...blackHoleTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...eyeTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...tallyTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...compassTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
+        ])
+        const preferredSentinelColors = colorRuleActive
+          ? biasPreferredColors(
+              Array.from(new Set([
+                ...arrowTargets.map((arrow) => arrow.color),
+                ...colorSquares.map((square) => square.color),
+                ...starTargets.map((star) => star.color),
+                ...triangleTargets.map((triangle) => triangle.color),
+                ...dotTargets.map((dot) => dot.color),
+                ...diamondTargets.map((diamond) => diamond.color),
+                ...chevronTargets.map((chevron) => chevron.color),
+                ...minesweeperTargets.map((target) => target.color),
+                ...waterDropletTargets.map((target) => target.color),
+                ...cardinalTargets.map((target) => target.color),
+                ...spinnerTargets.map((target) => target.color),
+                ...ghostTargets.map((target) => target.color),
+                ...crystalTargets.map((target) => target.color),
+                ...chipTargets.map((target) => target.color),
+                ...diceTargets.map((target) => target.color),
+                ...blackHoleTargets.map((target) => target.color),
+                ...eyeTargets.map((target) => target.color),
+                ...tallyTargets.map((target) => target.color),
+                ...compassTargets.map((target) => target.color),
+                ...polyominoSymbols.map((symbol) => symbol.color),
+              ])).slice(0, MAX_SYMBOL_COLORS),
+              rng
+            )
+          : undefined
+        const sentinelResult = generateSentinelsForEdges(
+          edges,
+          generationSeed + attempt * 31033,
+          baseKinds.length,
+          blockedSentinelCells,
+          colorRuleActive,
+          {
+            arrowTargets,
+            colorSquares,
+            starTargets,
+            triangleTargets,
+            dotTargets,
+            diamondTargets,
+            chevronTargets,
+            minesweeperTargets,
+            waterDropletTargets,
+            cardinalTargets,
+            spinnerTargets,
+            ghostTargets,
+            crystalTargets,
+            chipTargets,
+            diceTargets,
+            blackHoleTargets,
+            openPentagonTargets,
+            eyeTargets,
+            tallyTargets,
+            compassTargets,
+            polyominoSymbols,
+            negatorTargets,
+            hexTargets,
+          },
+          preferredSentinelColors,
+          solutionPath ?? undefined
+        )
+        if (sentinelResult) {
+          sentinelTargets = sentinelResult.targets
+          solutionPath = solutionPath ?? sentinelResult.solutionPath
+        } else {
+          continue attemptLoop
+        }
+      }
+
+      if (active.includes('open-pentagons')) {
+        const blockedOpenPentagonCells = new Set<string>([
+          ...arrowTargets.map((arrow) => `${arrow.cellX},${arrow.cellY}`),
+          ...colorSquares.map((square) => `${square.cellX},${square.cellY}`),
+          ...starTargets.map((star) => `${star.cellX},${star.cellY}`),
+          ...triangleTargets.map((triangle) => `${triangle.cellX},${triangle.cellY}`),
+          ...dotTargets.map((dot) => `${dot.cellX},${dot.cellY}`),
+          ...diamondTargets.map((diamond) => `${diamond.cellX},${diamond.cellY}`),
+          ...chevronTargets.map((chevron) => `${chevron.cellX},${chevron.cellY}`),
+          ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...waterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...cardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...spinnerTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...sentinelTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...crystalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...chipTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...diceTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...blackHoleTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...eyeTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...tallyTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...compassTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
+        ])
+        const preferredOpenPentagonColors = colorRuleActive
+          ? biasPreferredColors(
+              Array.from(new Set([
+                ...arrowTargets.map((arrow) => arrow.color),
+                ...colorSquares.map((square) => square.color),
+                ...starTargets.map((star) => star.color),
+                ...triangleTargets.map((triangle) => triangle.color),
+                ...dotTargets.map((dot) => dot.color),
+                ...diamondTargets.map((diamond) => diamond.color),
+                ...chevronTargets.map((chevron) => chevron.color),
+                ...minesweeperTargets.map((target) => target.color),
+                ...waterDropletTargets.map((target) => target.color),
+                ...cardinalTargets.map((target) => target.color),
+                ...spinnerTargets.map((target) => target.color),
+                ...sentinelTargets.map((target) => target.color),
+                ...ghostTargets.map((target) => target.color),
+                ...crystalTargets.map((target) => target.color),
+                ...chipTargets.map((target) => target.color),
+                ...diceTargets.map((target) => target.color),
+                ...blackHoleTargets.map((target) => target.color),
+                ...eyeTargets.map((target) => target.color),
+                ...tallyTargets.map((target) => target.color),
+                ...compassTargets.map((target) => target.color),
+                ...polyominoSymbols.map((symbol) => symbol.color),
+              ])).slice(0, MAX_SYMBOL_COLORS),
+              rng
+            )
+          : undefined
+        const openPentagonResult = generateOpenPentagonsForEdges(
+          edges,
+          generationSeed + attempt * 31123,
+          baseKinds.length,
+          blockedOpenPentagonCells,
+          colorRuleActive,
+          {
+            arrowTargets,
+            colorSquares,
+            starTargets,
+            triangleTargets,
+            dotTargets,
+            diamondTargets,
+            chevronTargets,
+            minesweeperTargets,
+            waterDropletTargets,
+            cardinalTargets,
+            spinnerTargets,
+            sentinelTargets,
+            ghostTargets,
+            crystalTargets,
+            chipTargets,
+            diceTargets,
+            blackHoleTargets,
+            eyeTargets,
+            tallyTargets,
+            compassTargets,
+            polyominoSymbols,
+            negatorTargets,
+          },
+          preferredOpenPentagonColors,
+          solutionPath ?? undefined
+        )
+        if (openPentagonResult) {
+          openPentagonTargets = openPentagonResult.targets
+          solutionPath = solutionPath ?? openPentagonResult.solutionPath
+          maybeCapturePartialCandidate()
+        } else {
+          continue attemptLoop
+        }
+      }
+
+      if (active.includes('eyes') && eyeTargets.length === 0) {
+        const blockedEyeCells = new Set<string>([
+          ...arrowTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...colorSquares.map((target) => `${target.cellX},${target.cellY}`),
+          ...starTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...triangleTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...dotTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...diamondTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...chevronTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...minesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...waterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...cardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...spinnerTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...sentinelTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...ghostTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...crystalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...chipTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...diceTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...blackHoleTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...openPentagonTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...tallyTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...compassTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
+        ])
+        const preferredEyeColors = colorRuleActive
+          ? biasPreferredColors(
+              Array.from(new Set([
+                ...arrowTargets.map((target) => target.color),
+                ...colorSquares.map((target) => target.color),
+                ...starTargets.map((target) => target.color),
+                ...triangleTargets.map((target) => target.color),
+                ...dotTargets.map((target) => target.color),
+                ...diamondTargets.map((target) => target.color),
+                ...chevronTargets.map((target) => target.color),
+                ...minesweeperTargets.map((target) => target.color),
+                ...waterDropletTargets.map((target) => target.color),
+                ...cardinalTargets.map((target) => target.color),
+                ...spinnerTargets.map((target) => target.color),
+                ...sentinelTargets.map((target) => target.color),
+                ...ghostTargets.map((target) => target.color),
+                ...crystalTargets.map((target) => target.color),
+                ...chipTargets.map((target) => target.color),
+                ...diceTargets.map((target) => target.color),
+                ...blackHoleTargets.map((target) => target.color),
+                ...openPentagonTargets.map((target) => target.color),
+                ...tallyTargets.map((target) => target.color),
+                ...compassTargets.map((target) => target.color),
+                ...polyominoSymbols.map((symbol) => symbol.color),
+              ])).slice(0, MAX_SYMBOL_COLORS),
+              rng
+            )
+          : undefined
+        const eyeResult = generateEyesForEdges(
+          edges,
+          generationSeed + attempt * 31157,
+          baseKinds.length,
+          blockedEyeCells,
+          colorRuleActive,
+          {
+            arrowTargets,
+            colorSquares,
+            starTargets,
+            triangleTargets,
+            dotTargets,
+            diamondTargets,
+            chevronTargets,
+            minesweeperTargets,
+            waterDropletTargets,
+            cardinalTargets,
+            spinnerTargets,
+            sentinelTargets,
+            ghostTargets,
+            crystalTargets,
+            chipTargets,
+            diceTargets,
+            blackHoleTargets,
+            openPentagonTargets,
+            tallyTargets,
+            compassTargets,
+            polyominoSymbols,
+            negatorTargets,
+            eyeTargets,
+          },
+          preferredEyeColors,
+          solutionPath ?? undefined
+        )
+        if (eyeResult) {
+          eyeTargets = eyeResult.targets
+          solutionPath = solutionPath ?? eyeResult.solutionPath
+          maybeCapturePartialCandidate()
+        } else {
+          continue attemptLoop
+        }
+      }
+
       if (active.includes('negator')) {
         const removableSymbolCount =
           arrowTargets.length +
@@ -2582,6 +3132,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           openPentagonTargets.length +
           eyeTargets.length +
           tallyTargets.length +
+          compassTargets.length +
           polyominoSymbols.length +
           hexTargets.length
         if (removableSymbolCount === 0) {
@@ -2614,6 +3165,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           ...openPentagonTargets.map((target) => `${target.cellX},${target.cellY}`),
           ...eyeTargets.map((target) => `${target.cellX},${target.cellY}`),
           ...tallyTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...compassTargets.map((target) => `${target.cellX},${target.cellY}`),
           ...polyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
         ])
         const preferredNegatorColors = colorRuleActive
@@ -2639,6 +3191,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
                 ...openPentagonTargets.map((target) => target.color),
                 ...eyeTargets.map((target) => target.color),
                 ...tallyTargets.map((target) => target.color),
+                ...compassTargets.map((target) => target.color),
                 ...polyominoSymbols.map((symbol) => symbol.color),
               ])).slice(0, MAX_SYMBOL_COLORS),
               rng
@@ -2686,6 +3239,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             openPentagonTargets,
             tallyTargets,
             eyeTargets,
+            compassTargets,
             colorRuleActive,
             preferredNegatorColors,
             solutionPath ?? undefined
@@ -2721,6 +3275,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             openPentagonTargets,
             eyeTargets,
             tallyTargets,
+            compassTargets,
             polyominoSymbols,
             negatorTargets: negatorResult.negators,
             hexTargets,
@@ -2783,6 +3338,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         openPentagonTargets,
         eyeTargets,
         tallyTargets,
+        compassTargets,
         polyominoSymbols,
         negatorTargets,
         hexTargets,
@@ -2814,6 +3370,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           openPentagonTargets,
           eyeTargets,
           tallyTargets,
+          compassTargets,
           polyominoSymbols,
           negatorTargets,
           true
@@ -2845,6 +3402,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         openPentagonTargets.length +
         eyeTargets.length +
         tallyTargets.length +
+        compassTargets.length +
         polyominoSymbols.length +
         negatorTargets.length +
         hexTargets.length
@@ -2891,6 +3449,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             openPentagonTargets,
             eyeTargets,
             tallyTargets,
+            compassTargets,
             polyominoSymbols,
             negatorTargets,
             hexTargets,
@@ -2920,6 +3479,27 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             ? (nearEndAttempts && attempt % 2 === 0) || attempt === generationAttempts - 1
             : nearEndAttempts || attempt % 8 === 0
         if (shouldRunFallbackSolver) {
+          const isEyeHeavyAttempt =
+            active.includes('eyes') &&
+            (
+              activeNonGapKinds.length >= 3 ||
+              active.includes('ghost') ||
+              active.includes('crystals') ||
+              active.includes('tally-marks') ||
+              active.includes('compasses') ||
+              active.includes('open-pentagons') ||
+              active.includes('black-holes') ||
+              active.includes('chips') ||
+              active.includes('negator')
+            )
+          const fallbackVisitBudgetBase = isPolyOnlyAttempt
+            ? GENERATION_POLY_ONLY_SOLVER_VISIT_BUDGET
+            : hasHeavyKinds
+              ? GENERATION_SOLVER_VISIT_BUDGET_HEAVY
+              : GENERATION_SOLVER_VISIT_BUDGET_LIGHT
+          const fallbackVisitBudget = isEyeHeavyAttempt
+            ? Math.floor(fallbackVisitBudgetBase * 1.85)
+            : fallbackVisitBudgetBase
           const combinedSolution = findAnyValidSolutionPath(
             edges,
             active,
@@ -2944,15 +3524,12 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
               openPentagonTargets,
               eyeTargets,
               tallyTargets,
+              compassTargets,
               polyominoSymbols,
               negatorTargets,
               hexTargets,
             },
-            isPolyOnlyAttempt
-              ? GENERATION_POLY_ONLY_SOLVER_VISIT_BUDGET
-              : hasHeavyKinds
-                ? GENERATION_SOLVER_VISIT_BUDGET_HEAVY
-                : GENERATION_SOLVER_VISIT_BUDGET_LIGHT
+            fallbackVisitBudget
           )
           if (combinedSolution) {
             validatedPath = combinedSolution
@@ -2996,6 +3573,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           openPentagonTargets,
           eyeTargets,
           tallyTargets,
+          compassTargets,
           polyominoSymbols,
           negatorTargets,
           hexTargets,
@@ -3032,6 +3610,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         openPentagonTargets,
         eyeTargets,
         tallyTargets,
+        compassTargets,
         polyominoSymbols,
         negatorTargets,
         hexTargets,
@@ -3061,6 +3640,23 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             : MANUAL_SOLVER_VISIT_BUDGET_FALLBACK
       for (let pendingIndex = 0; pendingIndex < pendingCandidates.length; pendingIndex += 1) {
         const pending = pendingCandidates[pendingIndex]
+        const pendingNonGapKinds = pending.activeKinds.filter((kind) => kind !== 'gap-line')
+        const pendingHasEyePressure =
+          pending.activeKinds.includes('eyes') &&
+          (
+            pendingNonGapKinds.length >= 3 ||
+            pending.activeKinds.includes('ghost') ||
+            pending.activeKinds.includes('crystals') ||
+            pending.activeKinds.includes('tally-marks') ||
+            pending.activeKinds.includes('compasses') ||
+            pending.activeKinds.includes('open-pentagons') ||
+            pending.activeKinds.includes('black-holes') ||
+            pending.activeKinds.includes('chips') ||
+            pending.activeKinds.includes('negator')
+          )
+        const pendingRecoveryBudget = pendingHasEyePressure
+          ? Math.floor(recoveryBudgetBase * 1.75)
+          : recoveryBudgetBase
         let recoveredPath: Point[] | null = null
         if (pending.solutionPathHint && pending.solutionPathHint.length >= 2) {
           const usedEdgesForHint = edgesFromPath(pending.solutionPathHint)
@@ -3089,6 +3685,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
               openPentagonTargets: pending.openPentagonTargets,
               eyeTargets: pending.eyeTargets,
               tallyTargets: pending.tallyTargets,
+              compassTargets: pending.compassTargets,
               polyominoSymbols: pending.polyominoSymbols,
               negatorTargets: pending.negatorTargets,
               hexTargets: pending.hexTargets,
@@ -3101,7 +3698,6 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         }
 
         if (!recoveredPath) {
-          const pendingNonGapKinds = pending.activeKinds.filter((kind) => kind !== 'gap-line')
           const pendingIsPolyOnly =
             pendingNonGapKinds.length > 0 &&
             pendingNonGapKinds.every(
@@ -3135,11 +3731,12 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
               openPentagonTargets: pending.openPentagonTargets,
               eyeTargets: pending.eyeTargets,
               tallyTargets: pending.tallyTargets,
+              compassTargets: pending.compassTargets,
               polyominoSymbols: pending.polyominoSymbols,
               negatorTargets: pending.negatorTargets,
               hexTargets: pending.hexTargets,
             },
-            pendingIsPolyOnly ? 4500 : recoveryBudgetBase
+            pendingIsPolyOnly ? Math.max(4500, pendingRecoveryBudget) : pendingRecoveryBudget
           )
         }
 
@@ -3181,6 +3778,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             openPentagonTargets: pending.openPentagonTargets,
             eyeTargets: pending.eyeTargets,
             tallyTargets: pending.tallyTargets,
+            compassTargets: pending.compassTargets,
             polyominoSymbols: pending.polyominoSymbols,
             negatorTargets: pending.negatorTargets,
             hexTargets: pending.hexTargets,
@@ -3191,6 +3789,23 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
 
       for (let pendingIndex = 0; pendingIndex < pendingCandidates.length; pendingIndex += 1) {
         const pending = pendingCandidates[pendingIndex]
+        const pendingNonGapKinds = pending.activeKinds.filter((kind) => kind !== 'gap-line')
+        const pendingHasEyePressure =
+          pending.activeKinds.includes('eyes') &&
+          (
+            pendingNonGapKinds.length >= 3 ||
+            pending.activeKinds.includes('ghost') ||
+            pending.activeKinds.includes('crystals') ||
+            pending.activeKinds.includes('tally-marks') ||
+            pending.activeKinds.includes('compasses') ||
+            pending.activeKinds.includes('open-pentagons') ||
+            pending.activeKinds.includes('black-holes') ||
+            pending.activeKinds.includes('chips') ||
+            pending.activeKinds.includes('negator')
+          )
+        const pendingFallbackBudget = pendingHasEyePressure
+          ? Math.floor(fallbackBudgetBase * 1.65)
+          : fallbackBudgetBase
         const hardRecoveredPath = findAnyValidSolutionPath(
           pending.puzzle.edges,
           pending.activeKinds,
@@ -3215,11 +3830,12 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             openPentagonTargets: pending.openPentagonTargets,
             eyeTargets: pending.eyeTargets,
             tallyTargets: pending.tallyTargets,
+            compassTargets: pending.compassTargets,
             polyominoSymbols: pending.polyominoSymbols,
             negatorTargets: pending.negatorTargets,
             hexTargets: pending.hexTargets,
           },
-          fallbackBudgetBase
+          pendingFallbackBudget
         )
         if (
           hardRecoveredPath &&
@@ -3254,6 +3870,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             openPentagonTargets: pending.openPentagonTargets,
             eyeTargets: pending.eyeTargets,
             tallyTargets: pending.tallyTargets,
+            compassTargets: pending.compassTargets,
             polyominoSymbols: pending.polyominoSymbols,
             negatorTargets: pending.negatorTargets,
             hexTargets: pending.hexTargets,
@@ -3294,6 +3911,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             openPentagonTargets: strictEmergencyPending.openPentagonTargets,
             eyeTargets: strictEmergencyPending.eyeTargets,
             tallyTargets: strictEmergencyPending.tallyTargets,
+            compassTargets: strictEmergencyPending.compassTargets,
             polyominoSymbols: strictEmergencyPending.polyominoSymbols,
             negatorTargets: strictEmergencyPending.negatorTargets,
             hexTargets: strictEmergencyPending.hexTargets,
@@ -3329,6 +3947,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             openPentagonTargets: strictEmergencyPending.openPentagonTargets,
             eyeTargets: strictEmergencyPending.eyeTargets,
             tallyTargets: strictEmergencyPending.tallyTargets,
+            compassTargets: strictEmergencyPending.compassTargets,
             polyominoSymbols: strictEmergencyPending.polyominoSymbols,
             negatorTargets: strictEmergencyPending.negatorTargets,
             hexTargets: strictEmergencyPending.hexTargets,
@@ -3360,6 +3979,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           openPentagonTargets: strictEmergencyPending.openPentagonTargets,
           eyeTargets: strictEmergencyPending.eyeTargets,
           tallyTargets: strictEmergencyPending.tallyTargets,
+          compassTargets: strictEmergencyPending.compassTargets,
           polyominoSymbols: strictEmergencyPending.polyominoSymbols,
           negatorTargets: strictEmergencyPending.negatorTargets,
           hexTargets: strictEmergencyPending.hexTargets,
@@ -3367,7 +3987,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         }
       }
 
-      if (hasCrystalNegatorPair) {
+      if (hasCrystalNegatorPair && !hasEyeCrystalNegatorCombo) {
         const ultraBudget = hasNegatorGhostCrystalPolyCombo
           ? Math.max(Math.floor(fallbackBudgetBase * 1.25), 140_000)
           : hasNegatorCrystalGhostCombo
@@ -3407,6 +4027,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
               openPentagonTargets: ultraPending.openPentagonTargets,
               eyeTargets: ultraPending.eyeTargets,
               tallyTargets: ultraPending.tallyTargets,
+              compassTargets: ultraPending.compassTargets,
               polyominoSymbols: ultraPending.polyominoSymbols,
               negatorTargets: ultraPending.negatorTargets,
               hexTargets: ultraPending.hexTargets,
@@ -3437,6 +4058,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             openPentagonTargets: ultraPending.openPentagonTargets,
             eyeTargets: ultraPending.eyeTargets,
             tallyTargets: ultraPending.tallyTargets,
+            compassTargets: ultraPending.compassTargets,
             polyominoSymbols: ultraPending.polyominoSymbols,
             negatorTargets: ultraPending.negatorTargets,
             hexTargets: ultraPending.hexTargets,
@@ -3476,6 +4098,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             openPentagonTargets: pending.openPentagonTargets,
             eyeTargets: pending.eyeTargets,
             tallyTargets: pending.tallyTargets,
+            compassTargets: pending.compassTargets,
             polyominoSymbols: pending.polyominoSymbols,
             negatorTargets: pending.negatorTargets,
             hexTargets: pending.hexTargets,
@@ -3521,6 +4144,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           openPentagonTargets: fallbackPending.openPentagonTargets,
           eyeTargets: fallbackPending.eyeTargets,
           tallyTargets: fallbackPending.tallyTargets,
+          compassTargets: fallbackPending.compassTargets,
           polyominoSymbols: fallbackPending.polyominoSymbols,
           negatorTargets: fallbackPending.negatorTargets,
           hexTargets: fallbackPending.hexTargets,
@@ -3560,6 +4184,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         openPentagonTargets: partialFallbackCandidate.openPentagonTargets,
         eyeTargets: partialFallbackCandidate.eyeTargets,
         tallyTargets: partialFallbackCandidate.tallyTargets,
+        compassTargets: partialFallbackCandidate.compassTargets,
         polyominoSymbols: partialFallbackCandidate.polyominoSymbols,
         negatorTargets: partialFallbackCandidate.negatorTargets,
         hexTargets: partialFallbackCandidate.hexTargets,
@@ -3636,6 +4261,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
     let emergencyOpenPentagonTargets: OpenPentagonTarget[] = []
     let emergencyEyeTargets: EyeTarget[] = []
     let emergencyTallyTargets: TallyMarkTarget[] = []
+    let emergencyCompassTargets: CompassTarget[] = []
     let emergencyPolyominoSymbols: PolyominoSymbol[] = []
     let emergencyNegatorTargets: NegatorTarget[] = []
     let emergencyHexTargets: HexTarget[] = []
@@ -3646,16 +4272,22 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       baseKinds.includes('open-pentagons')
     const emergencyRequiresNegatorCrystalGhostSafety =
       baseKinds.includes('negator') && baseKinds.includes('crystals') && baseKinds.includes('ghost')
+    const emergencyCrystalGenerationSymbolCount =
+      hasEyeCrystalNegatorCombo ? Math.max(baseKinds.length, 4) : baseKinds.length
 
     if (baseKinds.includes('crystals')) {
-      const emergencyCrystalAttempts = emergencyRequiresNegatorCrystalGhostSafety ? 16 : 28
+      const emergencyCrystalAttempts = emergencyRequiresNegatorCrystalGhostSafety
+        ? 16
+        : hasEyeCrystalNegatorCombo
+          ? 52
+          : 28
       for (let attempt = 0; attempt < emergencyCrystalAttempts; attempt += 1) {
         const crystalResult = generateCrystalsForEdges(
           emergencyPuzzle.edges,
           seed + 8_000_111 + attempt * 197,
           new Set<string>(),
           emergencyColorRuleActive,
-          baseKinds.length,
+          emergencyCrystalGenerationSymbolCount,
           undefined,
           emergencyPath ?? undefined,
           baseKinds.includes('negator'),
@@ -3713,7 +4345,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       }
     }
 
-    if (baseKinds.includes('tally-marks')) {
+    if (baseKinds.includes('tally-marks') && !baseKinds.includes('eyes')) {
       for (let attempt = 0; attempt < 24; attempt += 1) {
         const blockedTallyCells = new Set<string>([
           ...emergencyGhostTargets.map((target) => `${target.cellX},${target.cellY}`),
@@ -3749,6 +4381,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             polyominoSymbols: emergencyPolyominoSymbols,
             negatorTargets: emergencyNegatorTargets,
             tallyTargets: emergencyTallyTargets,
+            compassTargets: emergencyCompassTargets,
           },
           undefined,
           emergencyPath ?? undefined
@@ -3760,6 +4393,72 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       }
     }
 
+    if (baseKinds.includes('compasses')) {
+      for (let attempt = 0; attempt < 24; attempt += 1) {
+        const blockedCompassCells = new Set<string>([
+          ...emergencyArrowTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyColorSquares.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyStarTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyTriangleTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyDotTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyDiamondTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyChevronTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyMinesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyWaterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyCardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencySpinnerTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencySentinelTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyGhostTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyCrystalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyChipTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyDiceTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyBlackHoleTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyOpenPentagonTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyEyeTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyTallyTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyPolyominoSymbols.map((target) => `${target.cellX},${target.cellY}`),
+        ])
+        const compassResult = generateCompassesForEdges(
+          emergencyPuzzle.edges,
+          seed + 8_240_203 + attempt * 233,
+          baseKinds.length,
+          blockedCompassCells,
+          emergencyColorRuleActive,
+          {
+            arrowTargets: emergencyArrowTargets,
+            colorSquares: emergencyColorSquares,
+            starTargets: emergencyStarTargets,
+            triangleTargets: emergencyTriangleTargets,
+            dotTargets: emergencyDotTargets,
+            diamondTargets: emergencyDiamondTargets,
+            chevronTargets: emergencyChevronTargets,
+            minesweeperTargets: emergencyMinesweeperTargets,
+            waterDropletTargets: emergencyWaterDropletTargets,
+            cardinalTargets: emergencyCardinalTargets,
+            spinnerTargets: emergencySpinnerTargets,
+            sentinelTargets: emergencySentinelTargets,
+            ghostTargets: emergencyGhostTargets,
+            crystalTargets: emergencyCrystalTargets,
+            chipTargets: emergencyChipTargets,
+            diceTargets: emergencyDiceTargets,
+            blackHoleTargets: emergencyBlackHoleTargets,
+            openPentagonTargets: emergencyOpenPentagonTargets,
+            tallyTargets: emergencyTallyTargets,
+            eyeTargets: emergencyEyeTargets,
+            polyominoSymbols: emergencyPolyominoSymbols,
+            negatorTargets: emergencyNegatorTargets,
+            compassTargets: emergencyCompassTargets,
+          },
+          undefined,
+          emergencyPath ?? undefined
+        )
+        if (!compassResult) continue
+        emergencyCompassTargets = compassResult.targets
+        emergencyPath = emergencyPath ?? compassResult.solutionPath
+        break
+      }
+    }
+
     if (baseKinds.includes('black-holes')) {
       for (let attempt = 0; attempt < 28; attempt += 1) {
         const blockedBlackHoleCells = new Set<string>([
@@ -3767,6 +4466,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           ...emergencyCrystalTargets.map((target) => `${target.cellX},${target.cellY}`),
           ...emergencyDiceTargets.map((target) => `${target.cellX},${target.cellY}`),
           ...emergencyTallyTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyCompassTargets.map((target) => `${target.cellX},${target.cellY}`),
         ])
         const blackHoleResult = generateBlackHolesForEdges(
           emergencyPuzzle.edges,
@@ -3792,6 +4492,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             chipTargets: emergencyChipTargets,
             diceTargets: emergencyDiceTargets,
             tallyTargets: emergencyTallyTargets,
+            compassTargets: emergencyCompassTargets,
             polyominoSymbols: emergencyPolyominoSymbols,
             negatorTargets: emergencyNegatorTargets,
             blackHoleTargets: emergencyBlackHoleTargets,
@@ -3814,6 +4515,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           ...emergencyDiceTargets.map((target) => `${target.cellX},${target.cellY}`),
           ...emergencyBlackHoleTargets.map((target) => `${target.cellX},${target.cellY}`),
           ...emergencyTallyTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyCompassTargets.map((target) => `${target.cellX},${target.cellY}`),
         ])
         const chipResult = generateChipsForEdges(
           emergencyPuzzle.edges,
@@ -3839,6 +4541,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             blackHoleTargets: emergencyBlackHoleTargets,
             diceTargets: emergencyDiceTargets,
             tallyTargets: emergencyTallyTargets,
+            compassTargets: emergencyCompassTargets,
             polyominoSymbols: emergencyPolyominoSymbols,
             negatorTargets: emergencyNegatorTargets,
           },
@@ -3862,6 +4565,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           ...emergencyBlackHoleTargets.map((target) => `${target.cellX},${target.cellY}`),
           ...emergencyOpenPentagonTargets.map((target) => `${target.cellX},${target.cellY}`),
           ...emergencyTallyTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyCompassTargets.map((target) => `${target.cellX},${target.cellY}`),
           ...emergencyPolyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
         ])
         const eyeResult = generateEyesForEdges(
@@ -3893,6 +4597,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             polyominoSymbols: emergencyPolyominoSymbols,
             negatorTargets: emergencyNegatorTargets,
             tallyTargets: emergencyTallyTargets,
+            compassTargets: emergencyCompassTargets,
           },
           undefined,
           emergencyPath ?? undefined
@@ -3903,8 +4608,124 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         break
       }
     }
+    if (hasEyeCrystalNegatorCombo && emergencyCrystalTargets.length < 3) {
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        const blockedCrystalCells = new Set<string>([
+          ...emergencyArrowTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyColorSquares.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyStarTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyTriangleTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyDotTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyDiamondTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyChevronTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyMinesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyWaterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyCardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencySpinnerTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencySentinelTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyGhostTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyChipTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyDiceTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyBlackHoleTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyOpenPentagonTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyEyeTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyTallyTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyCompassTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyPolyominoSymbols.map((target) => `${target.cellX},${target.cellY}`),
+        ])
+        const crystalResult = generateCrystalsForEdges(
+          emergencyPuzzle.edges,
+          seed + 8_360_257 + attempt * 239,
+          blockedCrystalCells,
+          emergencyColorRuleActive,
+          emergencyCrystalGenerationSymbolCount,
+          undefined,
+          emergencyPath ?? undefined,
+          true,
+          false
+        )
+        if (!crystalResult) continue
+        emergencyCrystalTargets = crystalResult.targets
+        emergencyPath = crystalResult.solutionPath
+        break
+      }
+    }
+
+    if (baseKinds.includes('eyes') && baseKinds.includes('tally-marks')) {
+      for (let attempt = 0; attempt < 24; attempt += 1) {
+        const blockedTallyCells = new Set<string>([
+          ...emergencyArrowTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyColorSquares.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyStarTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyTriangleTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyDotTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyDiamondTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyChevronTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyMinesweeperTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyWaterDropletTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyCardinalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencySpinnerTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencySentinelTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyGhostTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyCrystalTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyChipTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyDiceTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyBlackHoleTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyOpenPentagonTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyEyeTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyCompassTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyPolyominoSymbols.map((symbol) => `${symbol.cellX},${symbol.cellY}`),
+        ])
+        const tallyResult = generateTallyMarksForEdges(
+          emergencyPuzzle.edges,
+          seed + 8_220_197 + attempt * 229,
+          baseKinds.length,
+          blockedTallyCells,
+          emergencyColorRuleActive,
+          {
+            arrowTargets: emergencyArrowTargets,
+            colorSquares: emergencyColorSquares,
+            starTargets: emergencyStarTargets,
+            triangleTargets: emergencyTriangleTargets,
+            dotTargets: emergencyDotTargets,
+            diamondTargets: emergencyDiamondTargets,
+            chevronTargets: emergencyChevronTargets,
+            minesweeperTargets: emergencyMinesweeperTargets,
+            waterDropletTargets: emergencyWaterDropletTargets,
+            cardinalTargets: emergencyCardinalTargets,
+            spinnerTargets: emergencySpinnerTargets,
+            sentinelTargets: emergencySentinelTargets,
+            ghostTargets: emergencyGhostTargets,
+            crystalTargets: emergencyCrystalTargets,
+            chipTargets: emergencyChipTargets,
+            diceTargets: emergencyDiceTargets,
+            blackHoleTargets: emergencyBlackHoleTargets,
+            openPentagonTargets: emergencyOpenPentagonTargets,
+            eyeTargets: emergencyEyeTargets,
+            polyominoSymbols: emergencyPolyominoSymbols,
+            negatorTargets: emergencyNegatorTargets,
+            tallyTargets: emergencyTallyTargets,
+            compassTargets: emergencyCompassTargets,
+          },
+          undefined,
+          emergencyPath ?? undefined
+        )
+        if (!tallyResult) continue
+        const tallyEffectiveUsedEdges = resolveEyeEffects(
+          edgesFromPath(tallyResult.solutionPath),
+          emergencyEyeTargets
+        ).effectiveUsedEdges
+        if (!checkTallyMarks(tallyEffectiveUsedEdges, tallyResult.targets)) continue
+        emergencyTallyTargets = tallyResult.targets
+        emergencyPath = emergencyPath ?? tallyResult.solutionPath
+        break
+      }
+    }
 
     if (baseKinds.includes('negator')) {
+      if (baseKinds.includes('crystals') && emergencyCrystalTargets.length < 3) {
+        // Keep negator+crystal combos meaningful in emergency mode too.
+      } else {
       const emergencyRemovableCount =
         emergencyGhostTargets.length +
         emergencyCrystalTargets.length +
@@ -3913,7 +4734,8 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         emergencyBlackHoleTargets.length +
         emergencyOpenPentagonTargets.length +
         emergencyEyeTargets.length +
-        emergencyTallyTargets.length
+        emergencyTallyTargets.length +
+        emergencyCompassTargets.length
       if (emergencyRemovableCount > 0) {
         const usedNegatorCells = new Set<string>([
           ...emergencyGhostTargets.map((target) => `${target.cellX},${target.cellY}`),
@@ -3924,6 +4746,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           ...emergencyOpenPentagonTargets.map((target) => `${target.cellX},${target.cellY}`),
           ...emergencyEyeTargets.map((target) => `${target.cellX},${target.cellY}`),
           ...emergencyTallyTargets.map((target) => `${target.cellX},${target.cellY}`),
+          ...emergencyCompassTargets.map((target) => `${target.cellX},${target.cellY}`),
         ])
         for (let attempt = 0; attempt < 16; attempt += 1) {
           // Emergency path: allow extra retries so we prefer a non-empty fallback puzzle.
@@ -3953,6 +4776,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             emergencyOpenPentagonTargets,
             emergencyTallyTargets,
             emergencyEyeTargets,
+            emergencyCompassTargets,
             emergencyColorRuleActive,
             [],
             emergencyPath ?? undefined
@@ -3962,6 +4786,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           emergencyPath = emergencyPath ?? negatorResult.solutionPath
           break
         }
+      }
       }
     }
 
@@ -3987,6 +4812,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       openPentagonTargets: emergencyOpenPentagonTargets,
       eyeTargets: emergencyEyeTargets,
       tallyTargets: emergencyTallyTargets,
+      compassTargets: emergencyCompassTargets,
       polyominoSymbols: emergencyPolyominoSymbols,
       negatorTargets: emergencyNegatorTargets,
       hexTargets: emergencyHexTargets,
@@ -4015,6 +4841,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       openPentagonTargets: emergencyOpenPentagonTargets,
       eyeTargets: emergencyEyeTargets,
       tallyTargets: emergencyTallyTargets,
+      compassTargets: emergencyCompassTargets,
       polyominoSymbols: emergencyPolyominoSymbols,
       negatorTargets: emergencyNegatorTargets,
       hexTargets: emergencyHexTargets,
@@ -4053,9 +4880,45 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         )
       }
       if (validatedEmergencyPath) {
-        console.warn(
-          `Generation emergency fallback returned reduced symbol set (seed=${seed}, kinds=${selectedKindsKey}).`
-        )
+        if (
+          emergencyColorRuleActive &&
+          countSymbolColors(
+            emergencyArrowTargets,
+            emergencyColorSquares,
+            emergencyStarTargets,
+            emergencyTriangleTargets,
+            emergencyDotTargets,
+            emergencyDiamondTargets,
+            emergencyChevronTargets,
+            emergencyMinesweeperTargets,
+            emergencyWaterDropletTargets,
+            emergencyCardinalTargets,
+            emergencySpinnerTargets,
+            emergencySentinelTargets,
+            emergencyGhostTargets,
+            emergencyCrystalTargets,
+            emergencyChipTargets,
+            emergencyDiceTargets,
+            emergencyBlackHoleTargets,
+            emergencyOpenPentagonTargets,
+            emergencyEyeTargets,
+            emergencyTallyTargets,
+            emergencyCompassTargets,
+            emergencyPolyominoSymbols,
+            emergencyNegatorTargets,
+            true
+          ) > MAX_SYMBOL_COLORS
+        ) {
+          validatedEmergencyPath = null
+        }
+      }
+      if (validatedEmergencyPath) {
+        const reducedKinds = emergencyActiveKinds.length !== baseKinds.length
+        if (reducedKinds) {
+          console.warn(
+            `Generation emergency fallback returned reduced symbol set (seed=${seed}, kinds=${selectedKindsKey}).`
+          )
+        }
         return {
           puzzle: emergencyPuzzle,
           activeKinds: emergencyActiveKinds,
@@ -4079,6 +4942,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           openPentagonTargets: emergencyOpenPentagonTargets,
           eyeTargets: emergencyEyeTargets,
           tallyTargets: emergencyTallyTargets,
+          compassTargets: emergencyCompassTargets,
           polyominoSymbols: emergencyPolyominoSymbols,
           negatorTargets: emergencyNegatorTargets,
           hexTargets: emergencyHexTargets,
@@ -4109,6 +4973,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       openPentagonTargets: emergencyOpenPentagonTargets,
       eyeTargets: emergencyEyeTargets,
       tallyTargets: emergencyTallyTargets,
+      compassTargets: emergencyCompassTargets,
       polyominoSymbols: emergencyPolyominoSymbols,
       negatorTargets: emergencyNegatorTargets,
       hexTargets: emergencyHexTargets,
@@ -4116,6 +4981,60 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
     }
 
   }, [seed, selectedKinds, selectedKindsKey])
+
+  const {
+    puzzle,
+    activeKinds,
+    arrowTargets,
+    colorSquares,
+    starTargets,
+    triangleTargets,
+    dotTargets,
+    diamondTargets,
+    chevronTargets,
+    minesweeperTargets,
+    waterDropletTargets,
+    cardinalTargets,
+    spinnerTargets,
+    sentinelTargets,
+    ghostTargets,
+    crystalTargets,
+    chipTargets,
+    diceTargets,
+    blackHoleTargets,
+    openPentagonTargets,
+    eyeTargets,
+    tallyTargets,
+    compassTargets,
+    polyominoSymbols,
+    negatorTargets,
+    hexTargets,
+    solutionPath,
+  } = useMemo(() => {
+    if (generated.tallyTargets.length === 0 || generated.solutionPath.length < 2) {
+      return generated
+    }
+    const effectiveUsedEdges = resolveEyeEffects(
+      edgesFromPath(generated.solutionPath),
+      generated.eyeTargets
+    ).effectiveUsedEdges
+    const syncedTallyTargets = recalculateTallyMarkTargets(
+      effectiveUsedEdges,
+      generated.tallyTargets
+    )
+    let changed = false
+    for (let index = 0; index < syncedTallyTargets.length; index += 1) {
+      if (syncedTallyTargets[index] !== generated.tallyTargets[index]) {
+        changed = true
+        break
+      }
+    }
+    if (!changed) return generated
+    return {
+      ...generated,
+      tallyTargets: syncedTallyTargets,
+    }
+  }, [generated])
 
   useEffect(() => {
     const key = `${seed}:${selectedKindsKey}`
@@ -4202,6 +5121,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       openPentagons: [...lastSolved.eliminations.openPentagons],
       tallyMarks: [...lastSolved.eliminations.tallyMarks],
       eyes: [...lastSolved.eliminations.eyes],
+      compasses: [...lastSolved.eliminations.compasses],
       polyominoes: [...lastSolved.eliminations.polyominoes],
       hexagons: [...lastSolved.eliminations.hexagons],
     })
@@ -4328,6 +5248,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       openPentagonTargets,
       eyeTargets,
       tallyTargets,
+      compassTargets,
       polyominoSymbols,
       negatorTargets,
       hexTargets,
@@ -4372,6 +5293,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         openPentagons: [...solvedEliminations.openPentagons],
         tallyMarks: [...solvedEliminations.tallyMarks],
         eyes: [...solvedEliminations.eyes],
+        compasses: [...solvedEliminations.compasses],
         polyominoes: [...solvedEliminations.polyominoes],
         hexagons: [...solvedEliminations.hexagons],
       },
@@ -4418,6 +5340,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       openPentagonTargets,
       eyeTargets,
       tallyTargets,
+      compassTargets,
       polyominoSymbols,
       negatorTargets,
       hexTargets,
@@ -4595,6 +5518,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       openPentagons: new Set(eliminations.openPentagons),
       tallyMarks: new Set(eliminations.tallyMarks),
       eyes: new Set(eliminations.eyes),
+      compasses: new Set(eliminations.compasses),
       polyominoes: new Set(eliminations.polyominoes),
       hexagons: new Set(eliminations.hexagons),
     }),
@@ -5233,10 +6157,11 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             <g className="eyes">
               {eyeTargets.map((target, index) => {
                 const glowFilter = symbolGlowFilter(target.color)
+                const pupilOffset = eyePupilOffset(target.direction)
                 return (
                   <g
                     key={`eye-${target.cellX}-${target.cellY}-${index}`}
-                    transform={`translate(${target.cellX + 0.5} ${target.cellY + 0.5}) rotate(${eyeDirectionAngle(target.direction)})`}
+                    transform={`translate(${target.cellX + 0.5} ${target.cellY + 0.5})`}
                     style={
                       eliminated.eyes.has(index)
                         ? { opacity: 0.24, filter: glowFilter }
@@ -5250,11 +6175,55 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
                     />
                     <circle
                       className="eye-pupil"
-                      cx={0.056}
-                      cy={0}
+                      cx={pupilOffset.x}
+                      cy={pupilOffset.y}
                       r={0.028}
                       style={{ fill: target.color }}
                     />
+                  </g>
+                )
+              })}
+            </g>
+          )}
+          {compassTargets.length > 0 && (
+            <g className="compasses">
+              {compassTargets.map((target, index) => {
+                const glowFilter = symbolGlowFilter(target.color)
+                const baseTransform = [
+                  `translate(${target.cellX + 0.5} ${target.cellY + 0.5})`,
+                  `rotate(${target.rotation * 90})`,
+                ]
+                  .filter(Boolean)
+                  .join(' ')
+                const glyphTransform = target.mirrored
+                  ? `${baseTransform} scale(-1 1)`
+                  : baseTransform
+                const eastX = target.mirrored ? -0.23 : 0.23
+                const westX = target.mirrored ? 0.23 : -0.23
+                return (
+                  <g
+                    key={`compass-${target.cellX}-${target.cellY}-${index}`}
+                    style={
+                      eliminated.compasses.has(index)
+                        ? { opacity: 0.24, filter: glowFilter }
+                        : { filter: glowFilter }
+                    }
+                  >
+                    <g transform={glyphTransform}>
+                      <circle className="compass-ring" cx={0} cy={0} r={0.205} style={{ stroke: target.color }} />
+                      <circle className="compass-dot" cx={0} cy={0} r={0.02} style={{ fill: target.color }} />
+                    </g>
+                    <g transform={baseTransform}>
+                      <polygon
+                        className="compass-north-tip"
+                        points="0,-0.282 0.038,-0.214 -0.038,-0.214"
+                        style={{ fill: target.color }}
+                      />
+                      <text className="compass-label" x={0} y={-0.122} textAnchor="middle" dominantBaseline="middle" style={{ fill: target.color }}>N</text>
+                      <text className="compass-label" x={eastX * 0.56} y={0.01} textAnchor="middle" dominantBaseline="middle" style={{ fill: target.color }}>E</text>
+                      <text className="compass-label" x={0} y={0.132} textAnchor="middle" dominantBaseline="middle" style={{ fill: target.color }}>S</text>
+                      <text className="compass-label" x={westX * 0.56} y={0.01} textAnchor="middle" dominantBaseline="middle" style={{ fill: target.color }}>W</text>
+                    </g>
                   </g>
                 )
               })}
@@ -5430,5 +6399,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
 }
 
 export default PuzzlePage
+
+
 
 

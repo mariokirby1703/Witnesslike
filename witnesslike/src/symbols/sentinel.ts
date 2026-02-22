@@ -32,6 +32,7 @@ import type { BlackHoleTarget } from './blackHoles'
 import type { OpenPentagonTarget } from './openPentagons'
 import type { TallyMarkTarget } from './tallyMarks'
 import type { EyeTarget } from './eyes'
+import type { CompassTarget } from './compass'
 
 export type SentinelDirection = 'up' | 'right' | 'down' | 'left'
 
@@ -62,6 +63,7 @@ type SentinelSupportSymbols = {
   openPentagonTargets: OpenPentagonTarget[]
   tallyTargets?: TallyMarkTarget[]
   eyeTargets?: EyeTarget[]
+  compassTargets?: CompassTarget[]
   polyominoSymbols: PolyominoSymbol[]
   negatorTargets: NegatorTarget[]
   hexTargets: HexTarget[]
@@ -237,6 +239,7 @@ function buildObservedSymbols(
   for (const target of symbols.openPentagonTargets) addCellSymbol(target.cellX, target.cellY)
   for (const target of symbols.tallyTargets ?? []) addCellSymbol(target.cellX, target.cellY)
   for (const target of symbols.eyeTargets ?? []) addCellSymbol(target.cellX, target.cellY)
+  for (const target of symbols.compassTargets ?? []) addCellSymbol(target.cellX, target.cellY)
   for (const target of symbols.polyominoSymbols) addCellSymbol(target.cellX, target.cellY)
   for (const target of symbols.negatorTargets) addCellSymbol(target.cellX, target.cellY)
   symbols.sentinelTargets.forEach((target, index) => {
@@ -483,3 +486,5 @@ export function sentinelDirectionAngle(direction: SentinelDirection) {
   if (direction === 'down') return 180
   return -90
 }
+
+

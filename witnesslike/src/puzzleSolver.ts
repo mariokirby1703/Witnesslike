@@ -47,6 +47,8 @@ import { checkTallyMarks, collectFailingTallyMarkIndexes } from './symbols/tally
 import type { TallyMarkTarget } from './symbols/tallyMarks'
 import { checkEyes, resolveEyeEffects } from './symbols/eyes'
 import type { EyeTarget } from './symbols/eyes'
+import { checkCompasses, collectFailingCompassIndexes } from './symbols/compass'
+import type { CompassTarget } from './symbols/compass'
 
 type SolverSymbols = {
   arrowTargets: ArrowTarget[]
@@ -68,6 +70,7 @@ type SolverSymbols = {
   openPentagonTargets: OpenPentagonTarget[]
   tallyTargets: TallyMarkTarget[]
   eyeTargets: EyeTarget[]
+  compassTargets?: CompassTarget[]
   polyominoSymbols: PolyominoSymbol[]
   hexTargets: HexTarget[]
   negatorTargets: NegatorTarget[]
@@ -95,6 +98,7 @@ export type EliminatedSymbolRef =
   | { kind: 'open-pentagon'; index: number }
   | { kind: 'tally-mark'; index: number }
   | { kind: 'eye'; index: number }
+  | { kind: 'compass'; index: number }
   | { kind: 'polyomino'; index: number }
   | { kind: 'hexagon'; index: number }
 
@@ -195,6 +199,7 @@ function buildFailingSymbolKeySet(
   const failing = new Set<string>()
   const eyeEffects = resolveEyeEffects(usedEdges, symbols.eyeTargets)
   const effectiveUsedEdges = eyeEffects.effectiveUsedEdges
+  const compassTargets = symbols.compassTargets ?? []
   for (const index of eyeEffects.failingIndexes) {
     failing.add(`eye:${index}`)
   }
@@ -206,7 +211,7 @@ function buildFailingSymbolKeySet(
   })
 
   symbols.triangleTargets.forEach((target, index) => {
-    if (countTouchedCellEdges(usedEdges, target.cellX, target.cellY) !== target.count) {
+    if (countTouchedCellEdges(effectiveUsedEdges, target.cellX, target.cellY) !== target.count) {
       failing.add(`triangle:${index}`)
     }
   })
@@ -299,6 +304,7 @@ function buildFailingSymbolKeySet(
     chipTargets: symbols.chipTargets,
     tallyTargets: symbols.tallyTargets,
     eyeTargets: symbols.eyeTargets,
+    compassTargets,
   })) {
     failing.add(`chip:${index}`)
   }
@@ -327,6 +333,7 @@ function buildFailingSymbolKeySet(
     blackHoleTargets: symbols.blackHoleTargets,
     tallyTargets: symbols.tallyTargets,
     eyeTargets: symbols.eyeTargets,
+    compassTargets,
   })) {
     failing.add(`black-hole:${index}`)
   }
@@ -335,6 +342,9 @@ function buildFailingSymbolKeySet(
   }
   for (const index of collectFailingTallyMarkIndexes(effectiveUsedEdges, symbols.tallyTargets)) {
     failing.add(`tally-mark:${index}`)
+  }
+  for (const index of collectFailingCompassIndexes(effectiveUsedEdges, compassTargets)) {
+    failing.add(`compass:${index}`)
   }
   for (const index of collectFailingSentinelIndexes(effectiveUsedEdges, {
     arrowTargets: symbols.arrowTargets,
@@ -356,6 +366,7 @@ function buildFailingSymbolKeySet(
     openPentagonTargets: symbols.openPentagonTargets,
     tallyTargets: symbols.tallyTargets,
     eyeTargets: symbols.eyeTargets,
+    compassTargets,
     polyominoSymbols: symbols.polyominoSymbols,
     negatorTargets: symbols.negatorTargets,
     hexTargets: symbols.hexTargets,
@@ -435,6 +446,7 @@ function buildFailingSymbolKeySet(
   symbols.eyeTargets.forEach((target) =>
     addColoredSymbol(target.cellX, target.cellY, target.color)
   )
+  compassTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
   symbols.polyominoSymbols.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
   symbols.negatorTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
   symbols.sentinelTargets.forEach((target) => addColoredSymbol(target.cellX, target.cellY, target.color))
@@ -460,6 +472,7 @@ function satisfiesBaseConstraints(
 ) {
   const eyeEffects = resolveEyeEffects(usedEdges, symbols.eyeTargets)
   const effectiveUsedEdges = eyeEffects.effectiveUsedEdges
+  const compassTargets = symbols.compassTargets ?? []
 
   if (activeKinds.includes('arrows')) {
     if (!checkArrows(path, symbols.arrowTargets)) return false
@@ -500,14 +513,15 @@ function satisfiesBaseConstraints(
       symbols.tallyTargets,
       symbols.eyeTargets,
       symbols.negatorTargets,
-      symbols.sentinelTargets
+      symbols.sentinelTargets,
+      compassTargets
     )) {
       return false
     }
   }
 
   if (activeKinds.includes('triangles')) {
-    if (!checkTriangles(usedEdges, symbols.triangleTargets)) return false
+    if (!checkTriangles(effectiveUsedEdges, symbols.triangleTargets)) return false
   }
 
   if (activeKinds.includes('dots')) {
@@ -569,6 +583,7 @@ function satisfiesBaseConstraints(
       chipTargets: symbols.chipTargets,
       tallyTargets: symbols.tallyTargets,
       eyeTargets: symbols.eyeTargets,
+      compassTargets,
     })) {
       return false
     }
@@ -601,6 +616,7 @@ function satisfiesBaseConstraints(
       blackHoleTargets: symbols.blackHoleTargets,
       tallyTargets: symbols.tallyTargets,
       eyeTargets: symbols.eyeTargets,
+      compassTargets,
     })) {
       return false
     }
@@ -612,6 +628,10 @@ function satisfiesBaseConstraints(
 
   if (activeKinds.includes('tally-marks')) {
     if (!checkTallyMarks(effectiveUsedEdges, symbols.tallyTargets)) return false
+  }
+
+  if (activeKinds.includes('compasses')) {
+    if (!checkCompasses(effectiveUsedEdges, compassTargets)) return false
   }
 
   if (activeKinds.includes('sentinel')) {
@@ -635,6 +655,7 @@ function satisfiesBaseConstraints(
       openPentagonTargets: symbols.openPentagonTargets,
       tallyTargets: symbols.tallyTargets,
       eyeTargets: symbols.eyeTargets,
+      compassTargets,
       polyominoSymbols: symbols.polyominoSymbols,
       negatorTargets: symbols.negatorTargets,
       hexTargets: symbols.hexTargets,
@@ -677,6 +698,7 @@ export function evaluatePathConstraints(
 
   const eyeEffects = resolveEyeEffects(usedEdges, symbols.eyeTargets)
   const effectiveUsedEdges = eyeEffects.effectiveUsedEdges
+  const compassTargets = symbols.compassTargets ?? []
   const regions = buildCellRegions(effectiveUsedEdges)
   const removableSymbols: Array<NegationTargetRef & { region: number }> = []
   const failingKeys = buildFailingSymbolKeySet(path, usedEdges, symbols)
@@ -700,10 +722,11 @@ export function evaluatePathConstraints(
     'black-hole': 16,
     'open-pentagon': 17,
     eye: 18,
-    'tally-mark': 19,
-    'color-square': 20,
-    hexagon: 21,
-    polyomino: 22,
+    compass: 19,
+    'tally-mark': 20,
+    'color-square': 21,
+    hexagon: 22,
+    polyomino: 23,
   }
 
   symbols.arrowTargets.forEach((target, index) => {
@@ -801,6 +824,11 @@ export function evaluatePathConstraints(
     if (region === undefined) return
     removableSymbols.push({ kind: 'eye', index, region })
   })
+  compassTargets.forEach((target, index) => {
+    const region = regions.get(`${target.cellX},${target.cellY}`)
+    if (region === undefined) return
+    removableSymbols.push({ kind: 'compass', index, region })
+  })
   symbols.sentinelTargets.forEach((target, index) => {
     const region = regions.get(`${target.cellX},${target.cellY}`)
     if (region === undefined) return
@@ -873,6 +901,7 @@ export function evaluatePathConstraints(
       const removedOpenPentagons = new Set<number>()
       const removedTallyMarks = new Set<number>()
       const removedEyes = new Set<number>()
+      const removedCompasses = new Set<number>()
       const removedSentinels = new Set<number>()
       const removedPolyominoes = new Set<number>()
       const removedHexagons = new Set<number>()
@@ -905,6 +934,7 @@ export function evaluatePathConstraints(
         if (symbol.kind === 'open-pentagon') removedOpenPentagons.add(symbol.index)
         if (symbol.kind === 'tally-mark') removedTallyMarks.add(symbol.index)
         if (symbol.kind === 'eye') removedEyes.add(symbol.index)
+        if (symbol.kind === 'compass') removedCompasses.add(symbol.index)
         if (symbol.kind === 'sentinel') removedSentinels.add(symbol.index)
         if (symbol.kind === 'polyomino') removedPolyominoes.add(symbol.index)
         if (symbol.kind === 'hexagon') removedHexagons.add(symbol.index)
@@ -935,6 +965,7 @@ export function evaluatePathConstraints(
         ),
         tallyTargets: symbols.tallyTargets.filter((_, index) => !removedTallyMarks.has(index)),
         eyeTargets: symbols.eyeTargets.filter((_, index) => !removedEyes.has(index)),
+        compassTargets: compassTargets.filter((_, index) => !removedCompasses.has(index)),
         sentinelTargets: symbols.sentinelTargets.filter((_, index) => !removedSentinels.has(index)),
         polyominoSymbols: symbols.polyominoSymbols.filter((_, index) => !removedPolyominoes.has(index)),
         hexTargets: symbols.hexTargets.filter((_, index) => !removedHexagons.has(index)),
@@ -1168,3 +1199,5 @@ export function findSimplestValidSolutionPath(
 
   return null
 }
+
+
