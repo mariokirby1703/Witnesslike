@@ -945,32 +945,31 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       : hasCrystalNegatorPair
         ? [0, 1_000_003, 2_000_006]
       : [0, 1_000_003]
-    const generationStartMs = Date.now()
-    const generationSoftTimeLimitMs = hasNegatorCrystalGhostCombo
-      ? 1_250
+    const generationSoftAttemptLimit = hasNegatorCrystalGhostCombo
+      ? 75
       : hasNegatorGhostCrystalPolyCombo
-      ? 1_650
+      ? 120
       : hasStressCombo
-        ? 2_250
+        ? 170
       : hasEyeCrystalNegatorCombo
-        ? 2_100
+        ? 160
         : Number.POSITIVE_INFINITY
     generationSeedLoop: for (const generationSeedOffset of generationSeedOffsets) {
       const generationSeed = seed + generationSeedOffset
       attemptLoop: for (let attempt = 0; attempt < generationAttempts; attempt += 1) {
-      if (
-        Date.now() - generationStartMs > generationSoftTimeLimitMs &&
-        (pendingCandidates.length > 0 || hasNegatorCrystalGhostCombo || hasEyeCrystalNegatorCombo)
-      ) {
-        break generationSeedLoop
-      }
-      const rng = mulberry32(generationSeed + attempt * 313 + 11)
-      const active: TileKind[] = [...baseKinds]
-      const colorRuleActive =
-        active.includes('stars') ||
-        active.includes('chips') ||
-        active.includes('black-holes') ||
-        active.includes('open-pentagons')
+        if (
+          attempt > generationSoftAttemptLimit &&
+          (pendingCandidates.length > 0 || hasNegatorCrystalGhostCombo || hasEyeCrystalNegatorCombo)
+        ) {
+          break generationSeedLoop
+        }
+        const rng = mulberry32(generationSeed + attempt * 313 + 11)
+        const active: TileKind[] = [...baseKinds]
+        const colorRuleActive =
+          active.includes('stars') ||
+          active.includes('chips') ||
+          active.includes('black-holes') ||
+          active.includes('open-pentagons')
 
       if (
         (active.includes('negative-polyomino') || active.includes('rotated-negative-polyomino')) &&
@@ -986,7 +985,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         ? buildFullGridHexPath(generationSeed + attempt * 11839 + 17)
         : null
 
-      let edges = active.includes('gap-line')
+      const edges = active.includes('gap-line')
         ? shouldForceFullGridHex && forcedFullGridHexPath
           ? generatePuzzleKeepingPath(generationSeed + attempt * 131, forcedFullGridHexPath).edges
           : generatePuzzle(generationSeed + attempt * 131).edges
@@ -1174,7 +1173,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           1,
           Math.min(baseDesiredColorCount, colorSquarePool?.length ?? baseDesiredColorCount)
         )
-        let colorResult = generateColorSquaresForEdges(
+        const colorResult = generateColorSquaresForEdges(
           edges,
           generationSeed + attempt * 2001,
           desiredColorCount,
@@ -1383,8 +1382,8 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           if (fixedSlotsLeft <= 0) {
             continue attemptLoop
           }
-          let usedForFixed = new Set(usedPolyCells)
-          let polyResult =
+          const usedForFixed = new Set(usedPolyCells)
+          const polyResult =
             fixedSlotsLeft > 0
               ? generatePolyominoesForEdges(
                   edges,
@@ -1419,8 +1418,8 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           if (rotatedSlotsLeft <= 0) {
             continue attemptLoop
           }
-          let usedForRotated = new Set(usedPolyCells)
-          let rotatedResult =
+          const usedForRotated = new Set(usedPolyCells)
+          const rotatedResult =
             rotatedSlotsLeft > 0
               ? generateRotatedPolyominoesForEdges(
                   edges,
@@ -4241,30 +4240,30 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       findBestLoopyPathByRegions(emergencyPuzzle.edges, emergencyRng, 26, 9) ??
       findRandomPath(emergencyPuzzle.edges, emergencyRng) ??
       [START, END]
-    let emergencyArrowTargets: ArrowTarget[] = []
-    let emergencyColorSquares: ColorSquare[] = []
-    let emergencyStarTargets: StarTarget[] = []
-    let emergencyTriangleTargets: TriangleTarget[] = []
-    let emergencyDotTargets: DotTarget[] = []
-    let emergencyDiamondTargets: DiamondTarget[] = []
-    let emergencyChevronTargets: ChevronTarget[] = []
-    let emergencyMinesweeperTargets: MinesweeperNumberTarget[] = []
-    let emergencyWaterDropletTargets: WaterDropletTarget[] = []
-    let emergencyCardinalTargets: CardinalTarget[] = []
-    let emergencySpinnerTargets: SpinnerTarget[] = []
-    let emergencySentinelTargets: SentinelTarget[] = []
+    const emergencyArrowTargets: ArrowTarget[] = []
+    const emergencyColorSquares: ColorSquare[] = []
+    const emergencyStarTargets: StarTarget[] = []
+    const emergencyTriangleTargets: TriangleTarget[] = []
+    const emergencyDotTargets: DotTarget[] = []
+    const emergencyDiamondTargets: DiamondTarget[] = []
+    const emergencyChevronTargets: ChevronTarget[] = []
+    const emergencyMinesweeperTargets: MinesweeperNumberTarget[] = []
+    const emergencyWaterDropletTargets: WaterDropletTarget[] = []
+    const emergencyCardinalTargets: CardinalTarget[] = []
+    const emergencySpinnerTargets: SpinnerTarget[] = []
+    const emergencySentinelTargets: SentinelTarget[] = []
     let emergencyGhostTargets: GhostTarget[] = []
     let emergencyCrystalTargets: CrystalTarget[] = []
     let emergencyChipTargets: ChipTarget[] = []
     let emergencyDiceTargets: DiceTarget[] = []
     let emergencyBlackHoleTargets: BlackHoleTarget[] = []
-    let emergencyOpenPentagonTargets: OpenPentagonTarget[] = []
+    const emergencyOpenPentagonTargets: OpenPentagonTarget[] = []
     let emergencyEyeTargets: EyeTarget[] = []
     let emergencyTallyTargets: TallyMarkTarget[] = []
     let emergencyCompassTargets: CompassTarget[] = []
-    let emergencyPolyominoSymbols: PolyominoSymbol[] = []
+    const emergencyPolyominoSymbols: PolyominoSymbol[] = []
     let emergencyNegatorTargets: NegatorTarget[] = []
-    let emergencyHexTargets: HexTarget[] = []
+    const emergencyHexTargets: HexTarget[] = []
     const emergencyColorRuleActive =
       baseKinds.includes('stars') ||
       baseKinds.includes('chips') ||

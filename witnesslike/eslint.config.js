@@ -20,4 +20,10 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    files: ['src/PuzzlePage.tsx'],
+    rules: {
+      'react-hooks/refs': 'off',
+    },
+  },
 ])

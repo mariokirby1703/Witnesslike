@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import './App.css'
 import HomePage from './HomePage'
 import type { Tile, TileKind } from './HomePage'
@@ -163,12 +163,6 @@ function enforceNegatorComboRule(ids: number[]) {
 function App() {
   const [view, setView] = useState<View>('home')
   const [selectedIds, setSelectedIds] = useState<number[]>([])
-  useEffect(() => {
-    setSelectedIds((prev) => {
-      const next = enforceNegatorComboRule(prev)
-      return next.length === prev.length ? prev : next
-    })
-  }, [selectedIds])
   const selectedTiles = TILES.filter((tile) => selectedIds.includes(tile.id))
 
   if (view === 'home') {

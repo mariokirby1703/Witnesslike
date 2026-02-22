@@ -6,8 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "eslint .",
+    "lint": "node --max-old-space-size=8192 ./node_modules/eslint/bin/eslint.js . --ext .ts,.tsx",
     "preview": "vite preview"
+  },
+  "engines": {
+    "node": ">=20.19.0 <21 || >=22.12.0"
   },
   "dependencies": {
     "react": "^19.2.0",
