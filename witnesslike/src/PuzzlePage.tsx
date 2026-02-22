@@ -892,7 +892,7 @@ function PuzzlePage({
       return parsed
     }
     return listAllEdges()
-  }, [effectiveCellCount, hideGaps, forcedEdgeKeys])
+  }, [hideGaps, forcedEdgeKeys])
 
   const generated = useMemo(() => {
     type PendingCandidate = {

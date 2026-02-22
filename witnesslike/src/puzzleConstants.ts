@@ -15,8 +15,8 @@ export let VIEWBOX = {
   w: MAX_INDEX + VIEWBOX_MARGIN * 2,
   h: MAX_INDEX + VIEWBOX_MARGIN * 2,
 }
-export let END_CAP_LENGTH = 0.28
-export let GAP_SIZE = 0.36
+export const END_CAP_LENGTH = 0.28
+export const GAP_SIZE = 0.36
 
 function clampPuzzleCellCount(cellCount: number) {
   return Math.max(
