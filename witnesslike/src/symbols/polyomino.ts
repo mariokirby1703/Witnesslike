@@ -112,7 +112,30 @@ const ROTATION_VARIANTS_BY_CANONICAL = (() => {
 
 function rotationVariantsForShape(shape: PolyominoShape) {
   const key = canonicalRotationKey(shape.cells)
-  return ROTATION_VARIANTS_BY_CANONICAL.get(key) ?? [shape]
+  const knownVariants = ROTATION_VARIANTS_BY_CANONICAL.get(key)
+  if (knownVariants && knownVariants.length > 0) {
+    return knownVariants
+  }
+
+  // Fallback for custom intro shapes that are not part of the generated catalog.
+  const generated: PolyominoShape[] = []
+  const seen = new Set<string>()
+  let current = shape.cells
+  for (let i = 0; i < 4; i += 1) {
+    const normalized = normalizeCells(current)
+    const cellSignature = cellsKey(normalized)
+    if (!seen.has(cellSignature)) {
+      seen.add(cellSignature)
+      generated.push({
+        id: `${shape.id}-rot-${i}`,
+        cells: normalized,
+        size: normalized.length,
+      })
+    }
+    current = rotateCells(current)
+  }
+
+  return generated.length > 0 ? generated : [shape]
 }
 
 function listShapePlacements(
@@ -121,14 +144,24 @@ function listShapePlacements(
   regionSet: Set<string>
 ) {
   const placements: Array<{ cells: string[]; shape: PolyominoShape }> = []
+  const seen = new Set<string>()
   for (const anchor of regionCells) {
-    const cells = shape.cells.map((cell) => ({
-      x: cell.x + anchor.x,
-      y: cell.y + anchor.y,
-    }))
-    if (cells.every((cell) => regionSet.has(`${cell.x},${cell.y}`))) {
+    for (const shapeCell of shape.cells) {
+      const offsetX = anchor.x - shapeCell.x
+      const offsetY = anchor.y - shapeCell.y
+      const cells = shape.cells.map((cell) => ({
+        x: cell.x + offsetX,
+        y: cell.y + offsetY,
+      }))
+      if (!cells.every((cell) => regionSet.has(`${cell.x},${cell.y}`))) {
+        continue
+      }
+      const placementCells = cells.map((cell) => `${cell.x},${cell.y}`)
+      const placementKey = [...placementCells].sort().join('|')
+      if (seen.has(placementKey)) continue
+      seen.add(placementKey)
       placements.push({
-        cells: cells.map((cell) => `${cell.x},${cell.y}`),
+        cells: placementCells,
         shape,
       })
     }

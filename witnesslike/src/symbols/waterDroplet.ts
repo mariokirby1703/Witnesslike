@@ -21,7 +21,6 @@ export type WaterDropletTarget = {
 }
 
 const DIRECTIONS: WaterDropletDirection[] = ['down', 'left', 'up', 'right']
-const MAX_CELL_INDEX = MAX_INDEX - 1
 type BoundarySide = 'top' | 'bottom' | 'left' | 'right'
 const DEFAULT_WATER_DROPLET_COLOR = '#22c4e5'
 
@@ -91,31 +90,32 @@ function leaksAtBoundary(
   direction: WaterDropletDirection,
   usedEdges: Set<string>
 ) {
+  const maxCellIndex = MAX_INDEX - 1
   if (direction === 'down') {
     return (
-      (cellY === MAX_CELL_INDEX && boundaryIsOpen(cellX, cellY, 'bottom', usedEdges)) ||
+      (cellY === maxCellIndex && boundaryIsOpen(cellX, cellY, 'bottom', usedEdges)) ||
       (cellX === 0 && boundaryIsOpen(cellX, cellY, 'left', usedEdges)) ||
-      (cellX === MAX_CELL_INDEX && boundaryIsOpen(cellX, cellY, 'right', usedEdges))
+      (cellX === maxCellIndex && boundaryIsOpen(cellX, cellY, 'right', usedEdges))
     )
   }
   if (direction === 'up') {
     return (
       (cellY === 0 && boundaryIsOpen(cellX, cellY, 'top', usedEdges)) ||
       (cellX === 0 && boundaryIsOpen(cellX, cellY, 'left', usedEdges)) ||
-      (cellX === MAX_CELL_INDEX && boundaryIsOpen(cellX, cellY, 'right', usedEdges))
+      (cellX === maxCellIndex && boundaryIsOpen(cellX, cellY, 'right', usedEdges))
     )
   }
   if (direction === 'left') {
     return (
       (cellX === 0 && boundaryIsOpen(cellX, cellY, 'left', usedEdges)) ||
       (cellY === 0 && boundaryIsOpen(cellX, cellY, 'top', usedEdges)) ||
-      (cellY === MAX_CELL_INDEX && boundaryIsOpen(cellX, cellY, 'bottom', usedEdges))
+      (cellY === maxCellIndex && boundaryIsOpen(cellX, cellY, 'bottom', usedEdges))
     )
   }
   return (
-    (cellX === MAX_CELL_INDEX && boundaryIsOpen(cellX, cellY, 'right', usedEdges)) ||
+    (cellX === maxCellIndex && boundaryIsOpen(cellX, cellY, 'right', usedEdges)) ||
     (cellY === 0 && boundaryIsOpen(cellX, cellY, 'top', usedEdges)) ||
-    (cellY === MAX_CELL_INDEX && boundaryIsOpen(cellX, cellY, 'bottom', usedEdges))
+    (cellY === maxCellIndex && boundaryIsOpen(cellX, cellY, 'bottom', usedEdges))
   )
 }
 
@@ -138,9 +138,10 @@ function collectWaterCells(
     if (!current) break
 
     for (const offset of offsets) {
+      const maxCellIndex = MAX_INDEX - 1
       const nx = current.x + offset.dx
       const ny = current.y + offset.dy
-      if (nx < 0 || nx > MAX_CELL_INDEX || ny < 0 || ny > MAX_CELL_INDEX) continue
+      if (nx < 0 || nx > maxCellIndex || ny < 0 || ny > maxCellIndex) continue
       if (regions.get(`${nx},${ny}`) !== region) continue
       const key = `${nx},${ny}`
       if (visited.has(key)) continue
@@ -183,8 +184,9 @@ export function generateWaterDropletsForEdges(
     const regions = buildCellRegions(pathEdges)
     const localCandidates: WaterDropletPlacement[] = []
     const localDirections = new Set<WaterDropletDirection>()
-    for (let y = 0; y <= MAX_CELL_INDEX; y += 1) {
-      for (let x = 0; x <= MAX_CELL_INDEX; x += 1) {
+    const maxCellIndex = MAX_INDEX - 1
+    for (let y = 0; y <= maxCellIndex; y += 1) {
+      for (let x = 0; x <= maxCellIndex; x += 1) {
         if (blockedCells.has(`${x},${y}`)) continue
         for (const direction of DIRECTIONS) {
           if (!isWaterDropletContained(regions, { cellX: x, cellY: y, direction }, pathEdges)) continue

@@ -43,9 +43,10 @@ type HomePageProps = {
   selectedIds: number[]
   onToggle: (tile: Tile) => void
   onStart: () => void
+  onBack?: () => void
 }
 
-function SymbolTile({ kind, variant = 'grid' }: { kind: TileKind; variant?: 'grid' | 'selected' }) {
+export function SymbolTile({ kind, variant = 'grid' }: { kind: TileKind; variant?: 'grid' | 'selected' }) {
   const starSvgPoints = (cx: number, cy: number, outer: number, inner: number, spikes = 8) => {
     const points: string[] = []
     const step = Math.PI / spikes
@@ -611,7 +612,7 @@ function SymbolTile({ kind, variant = 'grid' }: { kind: TileKind; variant?: 'gri
   )
 }
 
-function HomePage({ tiles, selectedIds, onToggle, onStart }: HomePageProps) {
+function HomePage({ tiles, selectedIds, onToggle, onStart, onBack }: HomePageProps) {
   const selectedCount = selectedIds.length
   const maxReached = selectedCount >= 4
   const selectedTilesInOrder = selectedIds
@@ -656,10 +657,25 @@ function HomePage({ tiles, selectedIds, onToggle, onStart }: HomePageProps) {
   return (
     <div className="app home">
       <header className="home-hero">
-        <div>
+        <div className="home-hero-header">
+          {onBack && (
+            <button
+              type="button"
+              className="btn ghost home-back-btn"
+              onClick={onBack}
+              aria-label="Back"
+            >
+              <svg className="container-back-arrow" viewBox="0 0 24 24" aria-hidden="true">
+                <line x1="18" y1="12" x2="8" y2="12" />
+                <polyline points="12,8 8,12 12,16" />
+              </svg>
+            </button>
+          )}
+          <div>
           <p className="eyebrow">Witness-like Puzzle Maker</p>
           <h1>Symbol Selector</h1>
           <p className="subtitle">Select up to 4 symbols to generate mixed puzzles.</p>
+          </div>
         </div>
       </header>
       <section className="symbol-grid" aria-label="Symbol selection">

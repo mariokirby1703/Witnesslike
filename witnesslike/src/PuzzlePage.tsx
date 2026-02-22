@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Tile, TileKind } from './HomePage'
-import { END, END_CAP_LENGTH, GAP_SIZE, START, VIEWBOX } from './puzzleConstants'
+import {
+  DEFAULT_PUZZLE_CELL_COUNT,
+  END,
+  END_CAP_LENGTH,
+  GAP_SIZE,
+  MAX_INDEX,
+  START,
+  VIEWBOX,
+  getPuzzleCellCount,
+  setPuzzleCellCount,
+} from './puzzleConstants'
 import type { Point } from './puzzleConstants'
 import {
   COLOR_PALETTE,
@@ -99,9 +109,37 @@ type Puzzle = {
 
 type Result = 'idle' | 'success' | 'fail'
 
+type ProgressionControls = {
+  current: number
+  total: number
+  canPrev: boolean
+  canNext: boolean
+  onPrev: () => void
+  onNext: () => void
+}
+
 type PuzzlePageProps = {
   selectedTiles: Tile[]
   onBack: () => void
+  allowAutoSolve?: boolean
+  allowNewPuzzle?: boolean
+  allowLastSolved?: boolean
+  fixedSeed?: number
+  forcedEdgeKeys?: string[]
+  hideGaps?: boolean
+  forcedColorSquares?: ColorSquare[]
+  forcedStarTargets?: StarTarget[]
+  forcedTriangleTargets?: TriangleTarget[]
+  forcedPolyominoSymbols?: PolyominoSymbol[]
+  forcedHexTargets?: HexTarget[]
+  forcedStartPoint?: Point
+  forcedEndPoint?: Point
+  viewBoxOverride?: { x: number; y: number; w: number; h: number }
+  titleOverride?: string
+  subtitleOverride?: string
+  progression?: ProgressionControls
+  onSolved?: () => void
+  cellCount?: number
 }
 
 const MAX_POLYOMINO_SYMBOLS = 4
@@ -116,16 +154,10 @@ const GENERATION_RECOVERY_SOLVER_VISIT_BUDGET = 6000
 const MAX_PENDING_RECOVERY_CANDIDATES = 5
 const AUTO_SOLVE_BASE_DURATION_MS = 320
 const AUTO_SOLVE_MS_PER_EDGE = 34
-const TOTAL_GRID_EDGE_COUNT = listAllEdges().length
 const RECENT_PATH_SIGNATURE_LIMIT = 40
 const RECENT_PATH_SIGNATURE_AVOID_WINDOW = 18
 const GENERATED_PUZZLE_KEY_HISTORY_LIMIT = 140
 const REPEAT_TRACE_RELAX_LAST_ATTEMPTS = 14
-const END_CAP_POINT: Point = {
-  x: END.x + END_CAP_LENGTH * Math.SQRT1_2,
-  y: END.y - END_CAP_LENGTH * Math.SQRT1_2,
-}
-const END_CAP_PATH = `M ${END.x} ${END.y} L ${END_CAP_POINT.x} ${END_CAP_POINT.y}`
 
 type Eliminations = {
   negators: number[]
@@ -691,8 +723,12 @@ type GeneratedSymbolSnapshot = {
   hexTargets: HexTarget[]
 }
 
-function hasGeneratedSymbolForKind(kind: TileKind, snapshot: GeneratedSymbolSnapshot) {
-  if (kind === 'gap-line') return snapshot.edges.size < TOTAL_GRID_EDGE_COUNT
+function hasGeneratedSymbolForKind(
+  kind: TileKind,
+  snapshot: GeneratedSymbolSnapshot,
+  totalGridEdgeCount: number
+) {
+  if (kind === 'gap-line') return snapshot.edges.size < totalGridEdgeCount
   if (kind === 'hexagon') return snapshot.hexTargets.length > 0
   if (kind === 'color-squares') return snapshot.colorSquares.length > 0
   if (kind === 'stars') return snapshot.starTargets.length > 0
@@ -737,8 +773,89 @@ function isPathTraceRecentlyUsed(path: Point[], recentPathSignatures: ReadonlySe
   return signature.length > 0 && recentPathSignatures.has(signature)
 }
 
-function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
-  const [seed, setSeed] = useState(() => Math.floor(Math.random() * 1_000_000_000))
+function parseForcedEdgeBounds(edgeKeys: string[]) {
+  if (edgeKeys.length === 0) return null
+  let maxX = 0
+  let maxY = 0
+  for (const key of edgeKeys) {
+    const [start, end] = key.split('-')
+    if (!start || !end) continue
+    const [ax, ay] = start.split(',').map(Number)
+    const [bx, by] = end.split(',').map(Number)
+    if (!Number.isFinite(ax) || !Number.isFinite(ay) || !Number.isFinite(bx) || !Number.isFinite(by)) continue
+    maxX = Math.max(maxX, ax, bx)
+    maxY = Math.max(maxY, ay, by)
+  }
+  return { maxX, maxY }
+}
+
+function buildForcedRegionMaskEdges(bounds: { maxX: number; maxY: number } | null, cellCount: number) {
+  if (!bounds) return new Set<string>()
+  const mask = new Set<string>()
+  const boundaryX = Math.max(0, Math.min(cellCount, Math.floor(bounds.maxX)))
+  const boundaryY = Math.max(0, Math.min(cellCount, Math.floor(bounds.maxY)))
+
+  if (boundaryX < cellCount) {
+    for (let y = 0; y < cellCount; y += 1) {
+      mask.add(edgeKey({ x: boundaryX, y }, { x: boundaryX, y: y + 1 }))
+    }
+  }
+
+  if (boundaryY < cellCount) {
+    for (let x = 0; x < cellCount; x += 1) {
+      mask.add(edgeKey({ x, y: boundaryY }, { x: x + 1, y: boundaryY }))
+    }
+  }
+
+  return mask
+}
+
+function parseEdgeKeyToSegment(key: string): { key: string; a: Point; b: Point } | null {
+  const [start, end] = key.split('-')
+  if (!start || !end) return null
+  const [ax, ay] = start.split(',').map(Number)
+  const [bx, by] = end.split(',').map(Number)
+  if (!Number.isFinite(ax) || !Number.isFinite(ay) || !Number.isFinite(bx) || !Number.isFinite(by)) return null
+  return {
+    key,
+    a: { x: ax, y: ay },
+    b: { x: bx, y: by },
+  }
+}
+
+function PuzzlePage({
+  selectedTiles,
+  onBack,
+  allowAutoSolve = true,
+  allowNewPuzzle = true,
+  allowLastSolved = true,
+  fixedSeed,
+  forcedEdgeKeys,
+  hideGaps = false,
+  forcedColorSquares,
+  forcedStarTargets,
+  forcedTriangleTargets,
+  forcedPolyominoSymbols,
+  forcedHexTargets,
+  forcedStartPoint,
+  forcedEndPoint,
+  viewBoxOverride,
+  titleOverride,
+  subtitleOverride,
+  progression,
+  onSolved,
+  cellCount = DEFAULT_PUZZLE_CELL_COUNT,
+}: PuzzlePageProps) {
+  const effectiveCellCount = Math.max(1, Math.min(4, Math.floor(cellCount)))
+  if (getPuzzleCellCount() !== effectiveCellCount) {
+    setPuzzleCellCount(effectiveCellCount)
+  }
+  const startPoint = forcedStartPoint ?? START
+  const endPoint = forcedEndPoint ?? END
+  const boardViewBox = viewBoxOverride ?? VIEWBOX
+  const [seed, setSeed] = useState(() =>
+    fixedSeed ?? Math.floor(Math.random() * 1_000_000_000)
+  )
   const [path, setPath] = useState<Point[]>([])
   const [isDrawing, setIsDrawing] = useState(false)
   const [locked, setLocked] = useState(false)
@@ -762,7 +879,20 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
   )
   const selectedKindsKey = selectedKinds.join('|') || 'gap-line'
 
-  const allEdges = useMemo(() => listAllEdges(), [])
+  const allEdges = useMemo(() => {
+    if (hideGaps && forcedEdgeKeys && forcedEdgeKeys.length > 0) {
+      const parsed: Array<{ key: string; a: Point; b: Point }> = []
+      const seen = new Set<string>()
+      for (const key of forcedEdgeKeys) {
+        if (seen.has(key)) continue
+        seen.add(key)
+        const segment = parseEdgeKeyToSegment(key)
+        if (segment) parsed.push(segment)
+      }
+      return parsed
+    }
+    return listAllEdges()
+  }, [effectiveCellCount, hideGaps, forcedEdgeKeys])
 
   const generated = useMemo(() => {
     type PendingCandidate = {
@@ -796,19 +926,139 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       score: number
     }
     const baseKinds = selectedKinds.length > 0 ? selectedKinds : (['gap-line'] as TileKind[])
-    const generationKey = `${seed}:${selectedKindsKey}`
-    const isReplayGeneration = generatedPuzzleKeysRef.current.includes(generationKey)
+    if (forcedEdgeKeys && forcedEdgeKeys.length > 0) {
+      const forcedEdges = new Set(forcedEdgeKeys)
+      const safeEdges =
+        forcedStartPoint || forcedEndPoint
+          ? forcedEdges
+          : hasPath(forcedEdges)
+            ? forcedEdges
+            : buildFullEdges()
+      const forcedSquares =
+        forcedColorSquares && forcedColorSquares.length > 0
+          ? forcedColorSquares.filter((square) => (
+              square.cellX >= 0 &&
+              square.cellY >= 0 &&
+              square.cellX < effectiveCellCount &&
+              square.cellY < effectiveCellCount
+            ))
+          : []
+      const forcedStars =
+        baseKinds.includes('stars') && forcedStarTargets && forcedStarTargets.length > 0
+          ? forcedStarTargets.filter((star) => (
+              star.cellX >= 0 &&
+              star.cellY >= 0 &&
+              star.cellX < effectiveCellCount &&
+              star.cellY < effectiveCellCount
+            ))
+          : []
+      const forcedTriangles =
+        baseKinds.includes('triangles') && forcedTriangleTargets && forcedTriangleTargets.length > 0
+          ? forcedTriangleTargets.filter((triangle) => (
+              triangle.cellX >= 0 &&
+              triangle.cellY >= 0 &&
+              triangle.cellX < effectiveCellCount &&
+              triangle.cellY < effectiveCellCount
+            ))
+          : []
+      const forcedPolyominoes =
+        (
+          baseKinds.includes('polyomino') ||
+          baseKinds.includes('rotated-polyomino') ||
+          baseKinds.includes('negative-polyomino') ||
+          baseKinds.includes('rotated-negative-polyomino')
+        ) &&
+        forcedPolyominoSymbols &&
+        forcedPolyominoSymbols.length > 0
+          ? forcedPolyominoSymbols
+              .filter((symbol) => (
+                symbol.cellX >= 0 &&
+                symbol.cellY >= 0 &&
+                symbol.cellX < effectiveCellCount &&
+                symbol.cellY < effectiveCellCount
+              ))
+              .map((symbol) => ({
+                ...symbol,
+                shape: {
+                  ...symbol.shape,
+                  cells: symbol.shape.cells.map((cell) => ({ ...cell })),
+                },
+              }))
+          : []
+      const forcedHexagons =
+        baseKinds.includes('hexagon') && forcedHexTargets && forcedHexTargets.length > 0
+          ? forcedHexTargets.filter((target) => {
+              if (target.kind === 'edge') {
+                return !!target.edgeKey && safeEdges.has(target.edgeKey)
+              }
+              return (
+                target.position.x >= 0 &&
+                target.position.y >= 0 &&
+                target.position.x <= effectiveCellCount &&
+                target.position.y <= effectiveCellCount
+              )
+            })
+          : []
+      return {
+        puzzle: { edges: safeEdges },
+        activeKinds: baseKinds,
+        arrowTargets: [] as ArrowTarget[],
+        colorSquares: forcedSquares,
+        starTargets: forcedStars,
+        triangleTargets: forcedTriangles,
+        dotTargets: [] as DotTarget[],
+        diamondTargets: [] as DiamondTarget[],
+        chevronTargets: [] as ChevronTarget[],
+        minesweeperTargets: [] as MinesweeperNumberTarget[],
+        waterDropletTargets: [] as WaterDropletTarget[],
+        cardinalTargets: [] as CardinalTarget[],
+        spinnerTargets: [] as SpinnerTarget[],
+        sentinelTargets: [] as SentinelTarget[],
+        ghostTargets: [] as GhostTarget[],
+        crystalTargets: [] as CrystalTarget[],
+        chipTargets: [] as ChipTarget[],
+        diceTargets: [] as DiceTarget[],
+        blackHoleTargets: [] as BlackHoleTarget[],
+        openPentagonTargets: [] as OpenPentagonTarget[],
+        eyeTargets: [] as EyeTarget[],
+        tallyTargets: [] as TallyMarkTarget[],
+        compassTargets: [] as CompassTarget[],
+        polyominoSymbols: forcedPolyominoes,
+        negatorTargets: [] as NegatorTarget[],
+        hexTargets: forcedHexagons,
+        solutionPath: [] as Point[],
+      }
+    }
+    const generationKey = `${seed}:${selectedKindsKey}:${effectiveCellCount}`
+    const isReplayGeneration =
+      fixedSeed !== undefined || generatedPuzzleKeysRef.current.includes(generationKey)
     const recentPathSignatures = isReplayGeneration
       ? []
       : recentSolutionSignaturesRef.current.slice(0, RECENT_PATH_SIGNATURE_AVOID_WINDOW)
     const recentPathSignatureSet = new Set(recentPathSignatures)
-    const minActive = baseKinds.length >= 2 ? 2 : 1
+    const isIntroMode =
+      progression !== undefined &&
+      fixedSeed !== undefined &&
+      !allowAutoSolve &&
+      !allowNewPuzzle &&
+      !allowLastSolved
+    const minActive = isIntroMode
+      ? baseKinds.filter((kind) => kind !== 'gap-line').length
+      : baseKinds.length >= 2
+        ? 2
+        : 1
     const hasRequestedSymbols = baseKinds.some((kind) => kind !== 'gap-line')
     const selectedSymbolCount = baseKinds.filter((kind) => kind !== 'gap-line').length
+    const symbolCountForGeneration = isIntroMode
+      ? Math.max(baseKinds.length, 4)
+      : baseKinds.length
+    const selectedSymbolCountForGeneration = isIntroMode
+      ? Math.max(selectedSymbolCount, 4)
+      : selectedSymbolCount
     const hasEyeComboPressure =
       baseKinds.includes('eyes') &&
       (
-        selectedSymbolCount >= 3 ||
+        selectedSymbolCountForGeneration >= 3 ||
         baseKinds.includes('ghost') ||
         baseKinds.includes('crystals') ||
         baseKinds.includes('tally-marks') ||
@@ -861,11 +1111,11 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       ? hasHeavyKinds
         ? 140
         : 110
-      : selectedSymbolCount >= 4
+      : selectedSymbolCountForGeneration >= 4
         ? hasHeavyKinds
           ? 260
           : 210
-        : selectedSymbolCount === 3
+        : selectedSymbolCountForGeneration === 3
           ? hasHeavyKinds
             ? 200
             : 160
@@ -874,23 +1124,23 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             : 110
     if (hasCrystalNegatorPair) {
       generationAttempts +=
-        selectedSymbolCount <= 2 ? 560 : selectedSymbolCount === 3 ? 320 : 170
+        selectedSymbolCountForGeneration <= 2 ? 560 : selectedSymbolCountForGeneration === 3 ? 320 : 170
     }
     if (hasStressCombo) {
-      generationAttempts = Math.min(generationAttempts, selectedSymbolCount >= 4 ? 340 : 300)
+      generationAttempts = Math.min(generationAttempts, selectedSymbolCountForGeneration >= 4 ? 340 : 300)
     }
     if (hasNegatorCrystalGhostCombo) {
-      generationAttempts = Math.min(generationAttempts, selectedSymbolCount <= 3 ? 110 : 150)
+      generationAttempts = Math.min(generationAttempts, selectedSymbolCountForGeneration <= 3 ? 110 : 150)
     }
     if (hasNegatorGhostCrystalPolyCombo) {
-      generationAttempts = Math.min(generationAttempts, selectedSymbolCount >= 4 ? 240 : 210)
+      generationAttempts = Math.min(generationAttempts, selectedSymbolCountForGeneration >= 4 ? 240 : 210)
     }
     if (hasEyeCrystalNegatorCombo) {
-      generationAttempts = Math.min(generationAttempts, selectedSymbolCount >= 3 ? 260 : 220)
+      generationAttempts = Math.min(generationAttempts, selectedSymbolCountForGeneration >= 3 ? 260 : 220)
     }
     const maxPendingCandidatesBase = Math.max(
       isPolyOnlySelection ? 6 : MAX_PENDING_RECOVERY_CANDIDATES,
-      selectedSymbolCount >= 4 ? 12 : selectedSymbolCount === 3 ? 10 : 8
+      selectedSymbolCountForGeneration >= 4 ? 12 : selectedSymbolCountForGeneration === 3 ? 10 : 8
     ) + (hasCrystalNegatorPair ? 4 : 0)
     const maxPendingCandidates = hasNegatorGhostCrystalPolyCombo
       ? Math.min(6, maxPendingCandidatesBase)
@@ -936,6 +1186,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       hexTargets: pending.hexTargets,
       solutionPath: solvedPath,
     })
+    const totalGridEdgeCount = listAllEdges().length
     const generationSeedOffsets = hasNegatorCrystalGhostCombo
       ? [0, 1_000_003]
       : hasNegatorGhostCrystalPolyCombo
@@ -1045,7 +1296,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           negatorTargets,
           hexTargets: [],
         }
-        const partialActiveKinds = active.filter((kind) => hasGeneratedSymbolForKind(kind, snapshot))
+        const partialActiveKinds = active.filter((kind) =>
+          hasGeneratedSymbolForKind(kind, snapshot, totalGridEdgeCount)
+        )
         const nonGapKindCount = partialActiveKinds.filter((kind) => kind !== 'gap-line').length
         if (nonGapKindCount === 0) return
 
@@ -1177,7 +1430,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           edges,
           generationSeed + attempt * 2001,
           desiredColorCount,
-          baseKinds.length,
+          symbolCountForGeneration,
           colorSquarePool,
           solutionPath ?? undefined
         )
@@ -1199,8 +1452,8 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         active.includes('crystals') &&
         active.includes('negator') &&
         !active.includes('ghost')
-          ? Math.max(baseKinds.length, 4)
-          : baseKinds.length
+          ? Math.max(symbolCountForGeneration, 4)
+          : symbolCountForGeneration
 
       if (active.includes('crystals') && !active.includes('eyes')) {
         const blockedCrystalCells = new Set<string>([
@@ -1261,7 +1514,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             generationSeed + attempt * 30967 + ghostAttempt * 173,
             blockedGhostCells,
             colorRuleActive,
-            baseKinds.length,
+            symbolCountForGeneration,
             preferredGhostColors,
             solutionPath ?? undefined,
             active.includes('crystals') && !requiresNegatorCrystalGhostSafety
@@ -1598,7 +1851,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const triangleResult = generateTrianglesForEdges(
           edges,
           generationSeed + attempt * 23011,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedTriangleCells,
           colorRuleActive,
           preferredTriangleColors,
@@ -1635,7 +1888,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const dotResult = generateDotsForEdges(
           edges,
           generationSeed + attempt * 24137,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedDotCells,
           colorRuleActive,
           preferredDotColors,
@@ -1674,7 +1927,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const diamondResult = generateDiamondsForEdges(
           edges,
           generationSeed + attempt * 24361,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedDiamondCells,
           colorRuleActive,
           preferredDiamondColors,
@@ -1715,7 +1968,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const arrowResult = generateArrowsForEdges(
           edges,
           generationSeed + attempt * 26053,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedArrowCells,
           colorRuleActive,
           preferredArrowColors,
@@ -1758,7 +2011,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const chevronResult = generateChevronsForEdges(
           edges,
           generationSeed + attempt * 26699,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedChevronCells,
           colorRuleActive,
           preferredChevronColors,
@@ -1804,7 +2057,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const minesweeperResult = generateMinesweeperNumbersForEdges(
           edges,
           generationSeed + attempt * 27599,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedMinesweeperCells,
           colorRuleActive,
           preferredMinesweeperColors,
@@ -1853,7 +2106,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const waterResult = generateWaterDropletsForEdges(
           edges,
           generationSeed + attempt * 30259,
-          selectedSymbolCount,
+          selectedSymbolCountForGeneration,
           blockedWaterCells,
           colorRuleActive,
           preferredWaterColors,
@@ -1902,7 +2155,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const cardinalResult = generateCardinalsForEdges(
           edges,
           generationSeed + attempt * 28931,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedCardinalCells,
           colorRuleActive,
           preferredCardinalColors,
@@ -1956,7 +2209,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const spinnerResult = generateSpinnersForEdges(
           edges,
           generationSeed + attempt * 30773,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedSpinnerCells,
           colorRuleActive,
           preferredSpinnerColors,
@@ -2009,7 +2262,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const diceResult = generateDiceForEdges(
           edges,
           generationSeed + attempt * 30893,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedDiceCells,
           colorRuleActive,
           preferredDiceColors,
@@ -2069,7 +2322,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const tallyResult = generateTallyMarksForEdges(
           edges,
           generationSeed + attempt * 30957,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedTallyCells,
           colorRuleActive,
           {
@@ -2161,7 +2414,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const eyeResult = generateEyesForEdges(
           edges,
           generationSeed + attempt * 31157,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedEyeCells,
           colorRuleActive,
           {
@@ -2334,7 +2587,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             generationSeed + attempt * 30967 + ghostAttempt * 173,
             blockedGhostCells,
             colorRuleActive,
-            baseKinds.length,
+            symbolCountForGeneration,
             preferredGhostColors,
             solutionPath ?? undefined,
             active.includes('crystals') && !requiresNegatorCrystalGhostSafety
@@ -2461,7 +2714,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const tallyResult = generateTallyMarksForEdges(
           edges,
           generationSeed + attempt * 30957,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedTallyCells,
           colorRuleActive,
           {
@@ -2561,7 +2814,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const compassResult = generateCompassesForEdges(
           edges,
           generationSeed + attempt * 31199,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedCompassCells,
           colorRuleActive,
           {
@@ -2648,7 +2901,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const blackHoleResult = generateBlackHolesForEdges(
           edges,
           generationSeed + attempt * 31129,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedBlackHoleCells,
           colorRuleActive,
           {
@@ -2736,7 +2989,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const chipResult = generateChipsForEdges(
           edges,
           generationSeed + attempt * 30989,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedChipCells,
           colorRuleActive,
           {
@@ -2775,8 +3028,9 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       }
 
       if (active.includes('stars')) {
-        const minPairs =
-          baseKinds.length === 1 && baseKinds[0] === 'stars'
+        const minPairs = isIntroMode
+          ? 1
+          : baseKinds.length === 1 && baseKinds[0] === 'stars'
             ? 3
             : baseKinds.length <= 2
               ? 2
@@ -2810,7 +3064,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           active.includes('eyes') ? eyeTargets : [],
           active.includes('negator'),
           solutionPath ?? undefined,
-          baseKinds.length,
+          symbolCountForGeneration,
           active.includes('compasses') ? compassTargets : []
         )
         if (starResult) {
@@ -2881,7 +3135,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const sentinelResult = generateSentinelsForEdges(
           edges,
           generationSeed + attempt * 31033,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedSentinelCells,
           colorRuleActive,
           {
@@ -2975,7 +3229,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const openPentagonResult = generateOpenPentagonsForEdges(
           edges,
           generationSeed + attempt * 31123,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedOpenPentagonCells,
           colorRuleActive,
           {
@@ -3069,7 +3323,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const eyeResult = generateEyesForEdges(
           edges,
           generationSeed + attempt * 31157,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedEyeCells,
           colorRuleActive,
           {
@@ -3202,11 +3456,11 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
             ? 10
             : hasCrystalNegatorPair
               ? 7
-              : selectedSymbolCount >= 3
+              : selectedSymbolCountForGeneration >= 3
                 ? 4
                 : 2
         const shouldValidateNegatorPlacement =
-          hasStressCombo || hasCrystalNegatorPair || selectedSymbolCount >= 3
+          hasStressCombo || hasCrystalNegatorPair || selectedSymbolCountForGeneration >= 3
         const quickNegatorRecoveryBudget = hasStressCombo ? 2200 : 1400
         let acceptedNegators: NegatorTarget[] | null = null
         let acceptedNegatorPath: Point[] | null = null
@@ -3342,7 +3596,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         negatorTargets,
         hexTargets,
       }
-      if (!active.every((kind) => hasGeneratedSymbolForKind(kind, generatedSnapshot))) {
+      if (!active.every((kind) => hasGeneratedSymbolForKind(kind, generatedSnapshot, totalGridEdgeCount))) {
         continue attemptLoop
       }
 
@@ -3406,7 +3660,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         negatorTargets.length +
         hexTargets.length
       if (hasRequestedSymbols && symbolCount === 0) continue
-      if (active.includes('chips') && symbolCount < 5) continue
+      if (!isIntroMode && active.includes('chips') && symbolCount < 5) continue
 
       const coveredKindCount = baseKinds.filter((kind) => active.includes(kind)).length
       const uniquePolyShapeCount = new Set(
@@ -4272,7 +4526,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
     const emergencyRequiresNegatorCrystalGhostSafety =
       baseKinds.includes('negator') && baseKinds.includes('crystals') && baseKinds.includes('ghost')
     const emergencyCrystalGenerationSymbolCount =
-      hasEyeCrystalNegatorCombo ? Math.max(baseKinds.length, 4) : baseKinds.length
+      hasEyeCrystalNegatorCombo ? Math.max(symbolCountForGeneration, 4) : symbolCountForGeneration
 
     if (baseKinds.includes('crystals')) {
       const emergencyCrystalAttempts = emergencyRequiresNegatorCrystalGhostSafety
@@ -4310,7 +4564,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           seed + 8_100_121 + attempt * 211,
           blockedGhostCells,
           emergencyColorRuleActive,
-          baseKinds.length,
+          symbolCountForGeneration,
           undefined,
           emergencyPath ?? undefined,
           baseKinds.includes('crystals') && !emergencyRequiresNegatorCrystalGhostSafety
@@ -4331,7 +4585,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const diceResult = generateDiceForEdges(
           emergencyPuzzle.edges,
           seed + 8_200_191 + attempt * 223,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedDiceCells,
           emergencyColorRuleActive,
           undefined,
@@ -4354,7 +4608,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const tallyResult = generateTallyMarksForEdges(
           emergencyPuzzle.edges,
           seed + 8_220_197 + attempt * 229,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedTallyCells,
           emergencyColorRuleActive,
           {
@@ -4420,7 +4674,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const compassResult = generateCompassesForEdges(
           emergencyPuzzle.edges,
           seed + 8_240_203 + attempt * 233,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedCompassCells,
           emergencyColorRuleActive,
           {
@@ -4470,7 +4724,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const blackHoleResult = generateBlackHolesForEdges(
           emergencyPuzzle.edges,
           seed + 8_250_211 + attempt * 227,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedBlackHoleCells,
           emergencyColorRuleActive,
           {
@@ -4519,7 +4773,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const chipResult = generateChipsForEdges(
           emergencyPuzzle.edges,
           seed + 8_300_233 + attempt * 239,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedChipCells,
           emergencyColorRuleActive,
           {
@@ -4570,7 +4824,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const eyeResult = generateEyesForEdges(
           emergencyPuzzle.edges,
           seed + 8_350_251 + attempt * 241,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedEyeCells,
           emergencyColorRuleActive,
           {
@@ -4678,7 +4932,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         const tallyResult = generateTallyMarksForEdges(
           emergencyPuzzle.edges,
           seed + 8_220_197 + attempt * 229,
-          baseKinds.length,
+          symbolCountForGeneration,
           blockedTallyCells,
           emergencyColorRuleActive,
           {
@@ -4817,7 +5071,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       hexTargets: emergencyHexTargets,
     }
     const emergencyActiveKinds = baseKinds.filter((kind) =>
-      hasGeneratedSymbolForKind(kind, emergencySnapshot)
+      hasGeneratedSymbolForKind(kind, emergencySnapshot, totalGridEdgeCount)
     )
     const emergencySymbols = {
       arrowTargets: emergencyArrowTargets,
@@ -4979,7 +5233,25 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       solutionPath: emergencyPath,
     }
 
-  }, [seed, selectedKinds, selectedKindsKey])
+  }, [
+    seed,
+    selectedKinds,
+    selectedKindsKey,
+    fixedSeed,
+    effectiveCellCount,
+    forcedEdgeKeys,
+    forcedColorSquares,
+    forcedStarTargets,
+    forcedTriangleTargets,
+    forcedPolyominoSymbols,
+    forcedHexTargets,
+    forcedStartPoint,
+    forcedEndPoint,
+    allowAutoSolve,
+    allowNewPuzzle,
+    allowLastSolved,
+    progression,
+  ])
 
   const {
     puzzle,
@@ -5036,7 +5308,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
   }, [generated])
 
   useEffect(() => {
-    const key = `${seed}:${selectedKindsKey}`
+    const key = `${seed}:${selectedKindsKey}:${effectiveCellCount}`
     const history = generatedPuzzleKeysRef.current
     if (!history.includes(key)) {
       history.push(key)
@@ -5044,7 +5316,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         history.splice(0, history.length - GENERATED_PUZZLE_KEY_HISTORY_LIMIT)
       }
     }
-  }, [seed, selectedKindsKey])
+  }, [seed, selectedKindsKey, effectiveCellCount])
 
   useEffect(() => {
     const signature = pathSignature(solutionPath)
@@ -5057,17 +5329,24 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
     recentSolutionSignaturesRef.current = deduped
   }, [seed, solutionPath])
 
-  const gaps = useMemo(
-    () => allEdges.filter((edge) => !puzzle.edges.has(edge.key)),
-    [allEdges, puzzle.edges]
-  )
+  const gaps = useMemo(() => {
+    if (hideGaps) return []
+    return allEdges.filter((edge) => !puzzle.edges.has(edge.key))
+  }, [allEdges, puzzle.edges, hideGaps])
 
   const title =
-    selectedTiles.length === 1 ? `${selectedTiles[0].label}-Puzzles` : 'Custom Set Puzzles'
+    titleOverride ??
+    (selectedTiles.length === 1 ? `${selectedTiles[0].label}-Puzzles` : 'Custom Set Puzzles')
   const subtitle =
-    selectedTiles.length === 1
+    subtitleOverride ??
+    (selectedTiles.length === 1
       ? selectedTiles[0].description
-      : `Symbols: ${selectedTiles.map((tile) => tile.label).join(', ')}`
+      : `Symbols: ${selectedTiles.map((tile) => tile.label).join(', ')}`)
+  const endCapPoint: Point = {
+    x: endPoint.x + END_CAP_LENGTH * Math.SQRT1_2,
+    y: endPoint.y - END_CAP_LENGTH * Math.SQRT1_2,
+  }
+  const endCapPath = `M ${endPoint.x} ${endPoint.y} L ${endCapPoint.x} ${endCapPoint.y}`
 
   const clearSolveTrace = () => {
     if (solveTraceAnimationRef.current === null) return
@@ -5088,7 +5367,20 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
     setEliminations(emptyEliminations())
   }
 
+  useEffect(() => {
+    if (fixedSeed === undefined) return
+    clearSolveTrace()
+    setSeed(fixedSeed)
+    setPath([])
+    setIsDrawing(false)
+    setLocked(false)
+    setCursor(null)
+    setResult('idle')
+    setEliminations(emptyEliminations())
+  }, [fixedSeed, effectiveCellCount])
+
   const handleNewPuzzle = () => {
+    if (!allowNewPuzzle || fixedSeed !== undefined) return
     setSeed(Math.floor(Math.random() * 1_000_000_000))
     resetPath()
   }
@@ -5135,8 +5427,8 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
     clearSolveTrace()
     setEliminations(emptyEliminations())
     setIsDrawing(true)
-    setPath([START])
-    setCursor(START)
+    setPath([startPoint])
+    setCursor(startPoint)
     setResult('idle')
   }
 
@@ -5146,8 +5438,8 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
     if (!svg) return
 
     const rect = svg.getBoundingClientRect()
-    const px = ((event.clientX - rect.left) / rect.width) * VIEWBOX.w + VIEWBOX.x
-    const py = ((event.clientY - rect.top) / rect.height) * VIEWBOX.h + VIEWBOX.y
+    const px = ((event.clientX - rect.left) / rect.width) * boardViewBox.w + boardViewBox.x
+    const py = ((event.clientY - rect.top) / rect.height) * boardViewBox.h + boardViewBox.y
     const pointer = { x: px, y: py }
 
     const last = path[path.length - 1]
@@ -5177,8 +5469,8 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       }
     }
 
-    if (last.x === END.x && last.y === END.y) {
-      const closest = closestPointOnSegment(pointer, END, END_CAP_POINT)
+    if (last.x === endPoint.x && last.y === endPoint.y) {
+      const closest = closestPointOnSegment(pointer, endPoint, endCapPoint)
       const dist = distance(pointer, closest)
       if (dist < best.distance) {
         setCursor({ x: closest.x, y: closest.y })
@@ -5226,32 +5518,39 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       usedEdges.add(edgeKey(solvedPath[i - 1], solvedPath[i]))
     }
 
-    const evaluation = evaluatePathConstraints(solvedPath, usedEdges, activeKinds, {
-      arrowTargets,
-      colorSquares,
-      starTargets,
-      triangleTargets,
-      dotTargets,
-      diamondTargets,
-      chevronTargets,
-      minesweeperTargets,
-      waterDropletTargets,
-      cardinalTargets,
-      spinnerTargets,
-      sentinelTargets,
-      ghostTargets,
-      crystalTargets,
-      chipTargets,
-      diceTargets,
-      blackHoleTargets,
-      openPentagonTargets,
-      eyeTargets,
-      tallyTargets,
-      compassTargets,
-      polyominoSymbols,
-      negatorTargets,
-      hexTargets,
-    })
+    const evaluation = evaluatePathConstraints(
+      solvedPath,
+      usedEdges,
+      activeKinds,
+      {
+        arrowTargets,
+        colorSquares,
+        starTargets,
+        triangleTargets,
+        dotTargets,
+        diamondTargets,
+        chevronTargets,
+        minesweeperTargets,
+        waterDropletTargets,
+        cardinalTargets,
+        spinnerTargets,
+        sentinelTargets,
+        ghostTargets,
+        crystalTargets,
+        chipTargets,
+        diceTargets,
+        blackHoleTargets,
+        openPentagonTargets,
+        eyeTargets,
+        tallyTargets,
+        compassTargets,
+        polyominoSymbols,
+        negatorTargets,
+        hexTargets,
+      },
+      'minimal',
+      forcedRegionMaskEdges
+    )
     if (!evaluation.ok) {
       setResult('fail')
       setLocked(false)
@@ -5301,6 +5600,7 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
     setLocked(true)
     setIsDrawing(false)
     setCursor(null)
+    onSolved?.()
     return true
   }
 
@@ -5309,14 +5609,15 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
     const last = path[path.length - 1]
     if (!last) return
 
-    const isConnected = path[0].x === START.x && path[0].y === START.y
-    const atEnd = last.x === END.x && last.y === END.y
+    const isConnected = path[0].x === startPoint.x && path[0].y === startPoint.y
+    const atEnd = last.x === endPoint.x && last.y === endPoint.y
     if (!isConnected || !atEnd) return
 
     applySolvedPath(path)
   }
 
   const handleSolve = () => {
+    if (!allowAutoSolve) return
     clearSolveTrace()
     const symbols = {
       arrowTargets,
@@ -5349,14 +5650,16 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
       puzzle.edges,
       activeKinds,
       symbols,
-      MANUAL_SOLVER_VISIT_BUDGET
+      MANUAL_SOLVER_VISIT_BUDGET,
+      forcedRegionMaskEdges
     )
     if (!solved) {
       solved = findSimplestValidSolutionPath(
         puzzle.edges,
         activeKinds,
         symbols,
-        MANUAL_SOLVER_VISIT_BUDGET_FALLBACK
+        MANUAL_SOLVER_VISIT_BUDGET_FALLBACK,
+        forcedRegionMaskEdges
       )
     }
     if (!solved && solutionPath && solutionPath.length >= 2) {
@@ -5366,7 +5669,8 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         hintedEdges,
         activeKinds,
         symbols,
-        'first'
+        'first',
+        forcedRegionMaskEdges
       )
       if (hintedEvaluation.ok) {
         solved = solutionPath
@@ -5377,7 +5681,8 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         puzzle.edges,
         activeKinds,
         symbols,
-        MANUAL_SOLVER_VISIT_BUDGET
+        MANUAL_SOLVER_VISIT_BUDGET,
+        forcedRegionMaskEdges
       )
     }
     if (!solved) {
@@ -5385,7 +5690,8 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         puzzle.edges,
         activeKinds,
         symbols,
-        MANUAL_SOLVER_VISIT_BUDGET_FALLBACK
+        MANUAL_SOLVER_VISIT_BUDGET_FALLBACK,
+        forcedRegionMaskEdges
       )
     }
     if (!solved || solved.length < 2) {
@@ -5475,8 +5781,8 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
   }
 
   const last = path[path.length - 1]
-  const isConnected = path.length > 0 && path[0].x === START.x && path[0].y === START.y
-  const canCheck = !!last && isConnected && last.x === END.x && last.y === END.y
+  const isConnected = path.length > 0 && path[0].x === startPoint.x && path[0].y === startPoint.y
+  const canCheck = !!last && isConnected && last.x === endPoint.x && last.y === endPoint.y
   const displayPoints = [...path]
   if (isDrawing && cursor) {
     displayPoints.push(cursor)
@@ -5523,6 +5829,23 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
     }),
     [eliminations]
   )
+  const puzzleButtonCount =
+    (allowNewPuzzle ? 1 : 0) + (allowAutoSolve ? 1 : 0) + (allowLastSolved ? 1 : 0)
+  const showPuzzleButtons = puzzleButtonCount > 0
+  const forcedEdgeBounds = useMemo(
+    () => (forcedEdgeKeys && forcedEdgeKeys.length > 0 ? parseForcedEdgeBounds(forcedEdgeKeys) : null),
+    [forcedEdgeKeys]
+  )
+  const forcedRegionMaskEdges = useMemo(
+    () => buildForcedRegionMaskEdges(forcedEdgeBounds, effectiveCellCount),
+    [forcedEdgeBounds, effectiveCellCount]
+  )
+  const boardMaxX = Math.max(startPoint.x, endPoint.x, forcedEdgeBounds?.maxX ?? MAX_INDEX)
+  const boardMaxY = Math.max(startPoint.y, endPoint.y, forcedEdgeBounds?.maxY ?? MAX_INDEX)
+  const boardBgX = -0.45
+  const boardBgY = -0.45
+  const boardBgWidth = boardMaxX + 0.9
+  const boardBgHeight = boardMaxY + 0.9
 
   return (
     <div className="app puzzle">
@@ -5536,17 +5859,29 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
         </div>
       </div>
 
-      <section className="board-shell">
+      <div className={`board-nav-shell ${progression ? 'active' : ''}`}>
+        {progression && (
+          <button
+            type="button"
+            className="intro-nav-button left"
+            onClick={progression.onPrev}
+            disabled={!progression.canPrev}
+            aria-label="Previous intro puzzle"
+          >
+            <span aria-hidden="true">&lt;</span>
+          </button>
+        )}
+        <section className="board-shell">
         <svg
           ref={boardRef}
           className={boardClass}
-          viewBox={`${VIEWBOX.x} ${VIEWBOX.y} ${VIEWBOX.w} ${VIEWBOX.h}`}
+          viewBox={`${boardViewBox.x} ${boardViewBox.y} ${boardViewBox.w} ${boardViewBox.h}`}
           role="img"
           aria-label="Puzzle Grid"
           onPointerMove={handlePointerMove}
           onContextMenu={handleContextMenu}
         >
-          <rect className="board-bg" x={-0.45} y={-0.45} width={4.9} height={4.9} />
+          <rect className="board-bg" x={boardBgX} y={boardBgY} width={boardBgWidth} height={boardBgHeight} />
           <g className="edges">
             {allEdges.map((segment) => (
               <line
@@ -6363,34 +6698,62 @@ function PuzzlePage({ selectedTiles, onBack }: PuzzlePageProps) {
           <g className={`end-group ${canCheck ? 'active' : ''}`}>
             <path
               className="end-hit"
-              d={END_CAP_PATH}
+              d={endCapPath}
               onClick={handleCheck}
             />
             <path
               className="end-cap"
-              d={END_CAP_PATH}
+              d={endCapPath}
               onClick={handleCheck}
             />
           </g>
 
           {pathPoints.length > 0 && <polyline ref={pathPolylineRef} className="path" points={pathPoints} />}
 
-          <circle className={startClass} cx={START.x} cy={START.y} r={0.24} onClick={handleStartClick} />
+          <circle className={startClass} cx={startPoint.x} cy={startPoint.y} r={0.24} onClick={handleStartClick} />
         </svg>
-      </section>
+        </section>
+        {progression && (
+          <button
+            type="button"
+            className="intro-nav-button right"
+            onClick={progression.onNext}
+            disabled={!progression.canNext}
+            aria-label="Next intro puzzle"
+          >
+            <span aria-hidden="true">&gt;</span>
+          </button>
+        )}
+      </div>
+      {progression && (
+        <p className="intro-stage-indicator" aria-live="polite">
+          Puzzle {progression.current} / {progression.total}
+        </p>
+      )}
 
       <div className="puzzle-actions">
-        <div className="puzzle-buttons">
-          <button className="btn primary" onClick={handleNewPuzzle}>
-            New puzzle
-          </button>
-          <button className="btn ghost" onClick={handleSolve} disabled={result === 'success'}>
-            Solve
-          </button>
-          <button className="btn ghost" onClick={handleViewLastSolved} disabled={!lastSolved}>
-            Last solved puzzle
-          </button>
-        </div>
+        {showPuzzleButtons && (
+          <div
+            className="puzzle-buttons"
+            style={{ gridTemplateColumns: `repeat(${puzzleButtonCount}, minmax(0, 1fr))` }}
+          >
+            {allowNewPuzzle && (
+              <button className="btn primary" onClick={handleNewPuzzle}>
+                New puzzle
+              </button>
+            )}
+            {allowAutoSolve && (
+              <button className="btn ghost" onClick={handleSolve} disabled={result === 'success'}>
+                Solve
+              </button>
+            )}
+            {allowLastSolved && (
+              <button className="btn ghost" onClick={handleViewLastSolved} disabled={!lastSolved}>
+                Last solved puzzle
+              </button>
+            )}
+          </div>
+        )}
         <p className="puzzle-hint">Right-click resets the path.</p>
       </div>
     </div>

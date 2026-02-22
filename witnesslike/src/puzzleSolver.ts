@@ -127,6 +127,18 @@ function pointKey(point: Point) {
   return `${point.x},${point.y}`
 }
 
+function mergeRegionMaskEdges(
+  usedEdges: Set<string>,
+  regionMaskEdges?: ReadonlySet<string>
+) {
+  if (!regionMaskEdges || regionMaskEdges.size === 0) return usedEdges
+  const merged = new Set<string>(usedEdges)
+  for (const edge of regionMaskEdges) {
+    merged.add(edge)
+  }
+  return merged
+}
+
 function isAtEnd(point: Point) {
   return point.x === END.x && point.y === END.y
 }
@@ -194,7 +206,8 @@ function countTouchedCellEdges(usedEdges: Set<string>, cellX: number, cellY: num
 function buildFailingSymbolKeySet(
   path: Point[],
   usedEdges: Set<string>,
-  symbols: SolverSymbols
+  symbols: SolverSymbols,
+  regionMaskEdges?: ReadonlySet<string>
 ) {
   const failing = new Set<string>()
   const eyeEffects = resolveEyeEffects(usedEdges, symbols.eyeTargets)
@@ -251,7 +264,8 @@ function buildFailingSymbolKeySet(
     }
   })
 
-  const regions = buildCellRegions(effectiveUsedEdges)
+  const regionUsedEdges = mergeRegionMaskEdges(effectiveUsedEdges, regionMaskEdges)
+  const regions = buildCellRegions(regionUsedEdges)
   symbols.chevronTargets.forEach((target, index) => {
     if (countChevronRegionCells(regions, target) !== target.count) {
       failing.add(`chevron:${index}`)
@@ -468,10 +482,12 @@ function satisfiesBaseConstraints(
   path: Point[],
   usedEdges: Set<string>,
   activeKinds: TileKind[],
-  symbols: SolverSymbols
+  symbols: SolverSymbols,
+  regionMaskEdges?: ReadonlySet<string>
 ) {
   const eyeEffects = resolveEyeEffects(usedEdges, symbols.eyeTargets)
   const effectiveUsedEdges = eyeEffects.effectiveUsedEdges
+  const regionUsedEdges = mergeRegionMaskEdges(effectiveUsedEdges, regionMaskEdges)
   const compassTargets = symbols.compassTargets ?? []
 
   if (activeKinds.includes('arrows')) {
@@ -487,12 +503,12 @@ function satisfiesBaseConstraints(
   }
 
   if (activeKinds.includes('color-squares')) {
-    if (!checkColorSquares(effectiveUsedEdges, symbols.colorSquares)) return false
+    if (!checkColorSquares(regionUsedEdges, symbols.colorSquares)) return false
   }
 
   if (activeKinds.includes('stars')) {
     if (!checkStars(
-      effectiveUsedEdges,
+      regionUsedEdges,
       symbols.starTargets,
       symbols.arrowTargets,
       symbols.colorSquares,
@@ -533,15 +549,15 @@ function satisfiesBaseConstraints(
   }
 
   if (activeKinds.includes('chevrons')) {
-    if (!checkChevrons(effectiveUsedEdges, symbols.chevronTargets)) return false
+    if (!checkChevrons(regionUsedEdges, symbols.chevronTargets)) return false
   }
 
   if (activeKinds.includes('minesweeper-numbers')) {
-    if (!checkMinesweeperNumbers(effectiveUsedEdges, symbols.minesweeperTargets)) return false
+    if (!checkMinesweeperNumbers(regionUsedEdges, symbols.minesweeperTargets)) return false
   }
 
   if (activeKinds.includes('water-droplet')) {
-    if (!checkWaterDroplets(effectiveUsedEdges, symbols.waterDropletTargets)) return false
+    if (!checkWaterDroplets(regionUsedEdges, symbols.waterDropletTargets)) return false
   }
 
   if (activeKinds.includes('cardinal')) {
@@ -553,15 +569,15 @@ function satisfiesBaseConstraints(
   }
 
   if (activeKinds.includes('ghost')) {
-    if (!checkGhosts(effectiveUsedEdges, symbols.ghostTargets)) return false
+    if (!checkGhosts(regionUsedEdges, symbols.ghostTargets)) return false
   }
 
   if (activeKinds.includes('crystals')) {
-    if (!checkCrystals(effectiveUsedEdges, symbols.crystalTargets)) return false
+    if (!checkCrystals(regionUsedEdges, symbols.crystalTargets)) return false
   }
 
   if (activeKinds.includes('chips')) {
-    if (!checkChips(effectiveUsedEdges, {
+    if (!checkChips(regionUsedEdges, {
       arrowTargets: symbols.arrowTargets,
       colorSquares: symbols.colorSquares,
       starTargets: symbols.starTargets,
@@ -590,11 +606,11 @@ function satisfiesBaseConstraints(
   }
 
   if (activeKinds.includes('dice')) {
-    if (!checkDice(effectiveUsedEdges, symbols.diceTargets)) return false
+    if (!checkDice(regionUsedEdges, symbols.diceTargets)) return false
   }
 
   if (activeKinds.includes('black-holes')) {
-    if (!checkBlackHoles(effectiveUsedEdges, {
+    if (!checkBlackHoles(regionUsedEdges, {
       arrowTargets: symbols.arrowTargets,
       colorSquares: symbols.colorSquares,
       starTargets: symbols.starTargets,
@@ -623,19 +639,19 @@ function satisfiesBaseConstraints(
   }
 
   if (activeKinds.includes('open-pentagons')) {
-    if (!checkOpenPentagons(effectiveUsedEdges, symbols)) return false
+    if (!checkOpenPentagons(regionUsedEdges, symbols)) return false
   }
 
   if (activeKinds.includes('tally-marks')) {
-    if (!checkTallyMarks(effectiveUsedEdges, symbols.tallyTargets)) return false
+    if (!checkTallyMarks(regionUsedEdges, symbols.tallyTargets)) return false
   }
 
   if (activeKinds.includes('compasses')) {
-    if (!checkCompasses(effectiveUsedEdges, compassTargets)) return false
+    if (!checkCompasses(regionUsedEdges, compassTargets)) return false
   }
 
   if (activeKinds.includes('sentinel')) {
-    if (!checkSentinels(effectiveUsedEdges, {
+    if (!checkSentinels(regionUsedEdges, {
       arrowTargets: symbols.arrowTargets,
       colorSquares: symbols.colorSquares,
       starTargets: symbols.starTargets,
@@ -671,7 +687,7 @@ function satisfiesBaseConstraints(
     activeKinds.includes('negative-polyomino') ||
     activeKinds.includes('rotated-negative-polyomino')
   ) {
-    if (!checkPolyominoes(effectiveUsedEdges, symbols.polyominoSymbols)) return false
+    if (!checkPolyominoes(regionUsedEdges, symbols.polyominoSymbols)) return false
   }
 
   return true
@@ -682,10 +698,11 @@ export function evaluatePathConstraints(
   usedEdges: Set<string>,
   activeKinds: TileKind[],
   symbols: SolverSymbols,
-  mode: ConstraintEvalMode = 'minimal'
+  mode: ConstraintEvalMode = 'minimal',
+  regionMaskEdges?: ReadonlySet<string>
 ): ConstraintEvaluation {
   const noNegatorResult = {
-    ok: satisfiesBaseConstraints(path, usedEdges, activeKinds, symbols),
+    ok: satisfiesBaseConstraints(path, usedEdges, activeKinds, symbols, regionMaskEdges),
     eliminatedNegatorIndexes: [] as number[],
     eliminatedSymbols: [] as EliminatedSymbolRef[],
   }
@@ -698,10 +715,11 @@ export function evaluatePathConstraints(
 
   const eyeEffects = resolveEyeEffects(usedEdges, symbols.eyeTargets)
   const effectiveUsedEdges = eyeEffects.effectiveUsedEdges
+  const regionUsedEdges = mergeRegionMaskEdges(effectiveUsedEdges, regionMaskEdges)
   const compassTargets = symbols.compassTargets ?? []
-  const regions = buildCellRegions(effectiveUsedEdges)
+  const regions = buildCellRegions(regionUsedEdges)
   const removableSymbols: Array<NegationTargetRef & { region: number }> = []
-  const failingKeys = buildFailingSymbolKeySet(path, usedEdges, symbols)
+  const failingKeys = buildFailingSymbolKeySet(path, usedEdges, symbols, regionMaskEdges)
   const candidateKindPriority: Record<NegationTargetRef['kind'], number> = {
     negator: 99,
     star: 1,
@@ -975,7 +993,7 @@ export function evaluatePathConstraints(
 
     const filtered = buildFilteredSymbols()
 
-    if (!satisfiesBaseConstraints(path, usedEdges, activeKinds, filtered)) return null
+    if (!satisfiesBaseConstraints(path, usedEdges, activeKinds, filtered, regionMaskEdges)) return null
 
     const chosenTargets = chosenNegations.map((selected) => selected.target)
     const hasNegatorTarget = chosenTargets.some((symbol) => symbol.kind === 'negator')
@@ -990,7 +1008,7 @@ export function evaluatePathConstraints(
       const symbol = selected.target
       if (symbol.kind === 'negator') continue
       const restored = buildFilteredSymbols(eliminatedKey(symbol))
-      if (satisfiesBaseConstraints(path, usedEdges, activeKinds, restored)) {
+      if (satisfiesBaseConstraints(path, usedEdges, activeKinds, restored, regionMaskEdges)) {
         return null
       }
     }
@@ -1042,7 +1060,8 @@ export function findAnyValidSolutionPath(
   edges: Set<string>,
   activeKinds: TileKind[],
   symbols: SolverSymbols,
-  maxVisitedNodes = Number.POSITIVE_INFINITY
+  maxVisitedNodes = Number.POSITIVE_INFINITY,
+  regionMaskEdges?: ReadonlySet<string>
 ) {
   const path: Point[] = [START]
   const usedEdges = new Set<string>()
@@ -1059,7 +1078,7 @@ export function findAnyValidSolutionPath(
     }
 
     if (isAtEnd(current)) {
-      return evaluatePathConstraints(path, usedEdges, activeKinds, symbols, 'first').ok
+      return evaluatePathConstraints(path, usedEdges, activeKinds, symbols, 'first', regionMaskEdges).ok
     }
 
     const nextNodes = neighbors(current).sort((a, b) => {
@@ -1110,7 +1129,8 @@ export function findSimplestValidSolutionPath(
   edges: Set<string>,
   activeKinds: TileKind[],
   symbols: SolverSymbols,
-  maxVisitedNodes = Number.POSITIVE_INFINITY
+  maxVisitedNodes = Number.POSITIVE_INFINITY,
+  regionMaskEdges?: ReadonlySet<string>
 ) {
   const path: Point[] = [START]
   const usedEdges = new Set<string>()
@@ -1144,7 +1164,14 @@ export function findSimplestValidSolutionPath(
 
       if (isAtEnd(current)) {
         if (usedEdgeCount !== edgeLimit) return
-        const evaluation = evaluatePathConstraints(path, usedEdges, activeKinds, symbols, 'first')
+        const evaluation = evaluatePathConstraints(
+          path,
+          usedEdges,
+          activeKinds,
+          symbols,
+          'first',
+          regionMaskEdges
+        )
         if (!evaluation.ok) return
         if (turnCount < bestTurnCount) {
           bestTurnCount = turnCount
