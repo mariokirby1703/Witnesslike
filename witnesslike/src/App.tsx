@@ -55,12 +55,6 @@ const ACTIVE_SYMBOLS: Array<{ label: string; description: string; kind: TileKind
     kind: 'chevrons',
   },
   {
-    label: 'Crystals',
-    description:
-      'Each crystal must be alone in its region, and all crystal regions must match in shape (rotations/flips count).',
-    kind: 'crystals',
-  },
-  {
     label: 'Chips',
     description:
       'For each chip color in a region, there must be at least two symbols of that color, and they must line up in one row or one column.',
@@ -73,16 +67,16 @@ const ACTIVE_SYMBOLS: Array<{ label: string; description: string; kind: TileKind
     kind: 'dice',
   },
   {
-    label: 'Black Holes',
-    description:
-      'The path may not touch any side of their cell (corners are allowed). If a same-color symbol shares the region, the puzzle fails.',
-    kind: 'black-holes',
-  },
-  {
     label: 'Open Pentagons',
     description:
       'Same-color open pentagons must be linked by exactly one cell path that avoids line crossings and symbols of other colors.',
     kind: 'open-pentagons',
+  },
+  {
+    label: 'Compass',
+    description:
+      'All same-color compasses must have exactly the same cell edges touched by the line; rotated/flipped compasses rotate/flip that required edge pattern too.',
+    kind: 'compasses',
   },
   {
     label: 'Tally Marks',
@@ -91,16 +85,22 @@ const ACTIVE_SYMBOLS: Array<{ label: string; description: string; kind: TileKind
     kind: 'tally-marks',
   },
   {
+    label: 'Black Holes',
+    description:
+      'The path may not touch any side of their cell (corners are allowed). If a same-color symbol shares the region, the puzzle fails.',
+    kind: 'black-holes',
+  },
+  {
     label: 'Eyes',
     description:
       'At least one line must exist in the facing direction; the first such segment merges both adjacent regions for other symbol checks.',
     kind: 'eyes',
   },
   {
-    label: 'Compass',
+    label: 'Crystals',
     description:
-      'All same-color compasses must have exactly the same cell edges touched by the line; rotated/flipped compasses rotate/flip that required edge pattern too.',
-    kind: 'compasses',
+      'Each crystal must be alone in its region, and all crystal regions must match in shape (rotations/flips count).',
+    kind: 'crystals',
   },
   {
     label: 'Ghost',
