@@ -1187,6 +1187,252 @@ const NEGATIVE_POLYOMINO_INTRO_SPECS: PolyominoIntroSpec[] = [
   },
 ]
 
+const ROTATED_NEGATIVE_POLYOMINO_INTRO_SPECS: PolyominoIntroSpec[] = [
+  {
+    cellCount: 3,
+    rectangular: { width: 1, height: 3 },
+    symbols: [
+      {
+        cellX: 0,
+        cellY: 0,
+        shape: POLY_TRI_LINE_VERTICAL_SHAPE,
+        color: POLYOMINO_GOLD,
+        rotatable: false,
+        negative: false,
+      },
+      {
+        cellX: 0,
+        cellY: 2,
+        shape: POLY_TRI_LINE_HORIZONTAL_SHAPE,
+        color: NEGATIVE_POLYOMINO_COLOR,
+        rotatable: true,
+        negative: true,
+      },
+    ],
+  },
+  {
+    cellCount: 2,
+    symbols: [
+      {
+        cellX: 0,
+        cellY: 0,
+        shape: POLY_TRI_STAIR_SHAPE,
+        color: POLYOMINO_GOLD,
+        rotatable: false,
+        negative: false,
+      },
+      {
+        cellX: 1,
+        cellY: 1,
+        shape: POLY_TRI_STAIR_ROTATED_SHAPE,
+        color: NEGATIVE_POLYOMINO_COLOR,
+        rotatable: true,
+        negative: true,
+      },
+    ],
+  },
+  {
+    cellCount: 2,
+    symbols: [
+      {
+        cellX: 0,
+        cellY: 1,
+        shape: POLY_DOMINO_VERTICAL_SHAPE,
+        color: POLYOMINO_GOLD,
+        rotatable: false,
+        negative: false,
+      },
+      {
+        cellX: 1,
+        cellY: 0,
+        shape: POLY_DOMINO_HORIZONTAL_SHAPE,
+        color: NEGATIVE_POLYOMINO_COLOR,
+        rotatable: true,
+        negative: true,
+      },
+    ],
+  },
+  {
+    cellCount: 3,
+    symbols: [
+      {
+        cellX: 0,
+        cellY: 1,
+        shape: POLY_TRI_LINE_VERTICAL_SHAPE,
+        color: POLYOMINO_GOLD,
+        rotatable: false,
+        negative: false,
+      },
+      {
+        cellX: 2,
+        cellY: 0,
+        shape: POLY_TRI_LINE_HORIZONTAL_SHAPE,
+        color: NEGATIVE_POLYOMINO_COLOR,
+        rotatable: true,
+        negative: true,
+      },
+    ],
+  },
+  {
+    cellCount: 3,
+    symbols: [
+      {
+        cellX: 0,
+        cellY: 2,
+        shape: POLY_TET_S_SIDE_SHAPE,
+        color: POLYOMINO_GOLD,
+        rotatable: false,
+        negative: false,
+      },
+      {
+        cellX: 3,
+        cellY: 1,
+        shape: POLY_TET_S_VERTICAL_SHAPE,
+        color: NEGATIVE_POLYOMINO_COLOR,
+        rotatable: true,
+        negative: true,
+      },
+    ],
+  },
+  {
+    cellCount: 4,
+    symbols: [
+      {
+        cellX: 3,
+        cellY: 0,
+        shape: POLY_OCTA_CIRCLE,
+        color: POLYOMINO_GOLD,
+        rotatable: false,
+        negative: false,
+      },
+      {
+        cellX: 1,
+        cellY: 3,
+        shape: POLY_TET_LINE_HORIZONTAL_SHAPE,
+        color: NEGATIVE_POLYOMINO_COLOR,
+        rotatable: true,
+        negative: true,
+      },
+    ],
+  },
+  {
+    cellCount: 4,
+    symbols: [
+      {
+        cellX: 2,
+        cellY: 0,
+        shape: POLY_TET_S_SIDE_SHAPE,
+        color: POLYOMINO_GOLD,
+        rotatable: false,
+        negative: false,
+      },
+      {
+        cellX: 2,
+        cellY: 0,
+        shape: POLY_TET_S_VERTICAL_SHAPE,
+        color: NEGATIVE_POLYOMINO_COLOR,
+        rotatable: true,
+        negative: true,
+      },
+    ],
+  },
+  {
+    cellCount: 4,
+    symbols: [
+      {
+        cellX: 0,
+        cellY: 0,
+        shape: POLY_TRI_STAIR_ROTATED_SHAPE,
+        color: POLYOMINO_GOLD,
+        rotatable: false,
+        negative: false,
+      },
+      {
+        cellX: 3,
+        cellY: 1,
+        shape: POLY_DOMINO_HORIZONTAL_SHAPE,
+        color: NEGATIVE_POLYOMINO_COLOR,
+        rotatable: true,
+        negative: true,
+      },
+      {
+        cellX: 3,
+        cellY: 3,
+        shape: POLY_DOMINO_VERTICAL_SHAPE,
+        color: POLYOMINO_GOLD,
+        rotatable: false,
+        negative: false,
+      },
+    ],
+  },
+  {
+    cellCount: 4,
+    symbols: [
+      {
+        cellX: 1,
+        cellY: 0,
+        shape: POLY_TET_S_SIDE_SHAPE,
+        color: POLYOMINO_GOLD,
+        rotatable: false,
+        negative: false,
+      },
+      {
+        cellX: 1,
+        cellY: 2,
+        shape: POLY_TET_S_VERTICAL_SHAPE,
+        color: NEGATIVE_POLYOMINO_COLOR,
+        rotatable: true,
+        negative: true,
+      },
+      {
+        cellX: 2,
+        cellY: 2,
+        shape: POLY_TET_S_VERTICAL_SHAPE,
+        color: POLYOMINO_GOLD,
+        rotatable: false,
+        negative: false,
+      },
+    ],
+  },
+  {
+    cellCount: 4,
+    symbols: [
+      {
+        cellX: 1,
+        cellY: 3,
+        shape: POLY_TET_LINE_HORIZONTAL_SHAPE,
+        color: POLYOMINO_GOLD,
+        rotatable: false,
+        negative: false,
+      },
+      {
+        cellX: 2,
+        cellY: 1,
+        shape: POLY_OCTA_CIRCLE,
+        color: POLYOMINO_GOLD,
+        rotatable: false,
+        negative: false,
+      },
+      {
+        cellX: 0,
+        cellY: 2,
+        shape: POLY_TRI_LINE_VERTICAL_SHAPE,
+        color: NEGATIVE_POLYOMINO_COLOR,
+        rotatable: true,
+        negative: true,
+      },
+      {
+        cellX: 3,
+        cellY: 3,
+        shape: POLY_DOMINO_VERTICAL_SHAPE,
+        color: NEGATIVE_POLYOMINO_COLOR,
+        rotatable: true,
+        negative: true,
+      },
+    ],
+  },
+]
+
 const ACTIVE_SYMBOLS: Array<{ label: string; description: string; kind: TileKind }> = [
   { label: 'Gaps', description: 'Missing segments block the path and force reroutes.', kind: 'gap-line' },
   { label: 'Hexagons', description: 'Collect every hexagon before finishing the path.', kind: 'hexagon' },
@@ -1290,7 +1536,7 @@ const ACTIVE_SYMBOLS: Array<{ label: string; description: string; kind: TileKind
   },
 ]
 
-const INTRO_LOCK_START_KIND: TileKind = 'rotated-negative-polyomino'
+const INTRO_LOCK_START_KIND: TileKind = 'negator'
 const INTRO_LOCK_END_KIND: TileKind = 'ghost'
 const INTRO_LOCKED_KINDS = (() => {
   const startIndex = ACTIVE_SYMBOLS.findIndex((symbol) => symbol.kind === INTRO_LOCK_START_KIND)
@@ -1660,11 +1906,12 @@ function buildTriangleIntroStageTargets(stageIndex: number) {
   return spec.triangles.map((triangle) => ({ ...triangle }))
 }
 
-function isFixedPolyominoIntroKind(kind: TileKind): kind is 'polyomino' | 'rotated-polyomino' | 'negative-polyomino' {
+function isFixedPolyominoIntroKind(kind: TileKind): kind is 'polyomino' | 'rotated-polyomino' | 'negative-polyomino' | 'rotated-negative-polyomino' {
   return (
     kind === 'polyomino' ||
     kind === 'rotated-polyomino' ||
-    kind === 'negative-polyomino'
+    kind === 'negative-polyomino' ||
+    kind === 'rotated-negative-polyomino'
   )
 }
 
@@ -1674,6 +1921,8 @@ function getPolyominoIntroSpec(kind: TileKind, stageIndex: number) {
       ? ROTATED_POLYOMINO_INTRO_SPECS
       : kind === 'negative-polyomino'
         ? NEGATIVE_POLYOMINO_INTRO_SPECS
+        : kind === 'rotated-negative-polyomino'
+          ? ROTATED_NEGATIVE_POLYOMINO_INTRO_SPECS
         : POLYOMINO_INTRO_SPECS
   return specs[stageIndex] ?? specs[specs.length - 1]
 }
@@ -1696,6 +1945,22 @@ function buildPolyominoIntroStageEdgeKeys(kind: TileKind, stageIndex: number) {
     } else {
       edges.delete(introEdgeKey(0, 3, 1, 3))
       edges.delete(introEdgeKey(3, 0, 3, 1))
+    }
+    return [...edges]
+  }
+
+  if (kind === 'rotated-negative-polyomino') {
+    const edges = new Set(fullEdges)
+    const removedEdgesByStage: Record<number, string[]> = {
+      0: [introEdgeKey(0, 0, 1, 0)],
+      1: [introEdgeKey(0, 2, 1, 2), introEdgeKey(0, 0, 0, 1)],
+      2: [introEdgeKey(1, 2, 2, 2), introEdgeKey(0, 0, 0, 1)],
+      3: [introEdgeKey(1, 3, 2, 3), introEdgeKey(1, 0, 2, 0)],
+      4: [introEdgeKey(0, 0, 1, 0)],
+      6: [introEdgeKey(1, 4, 2, 4), introEdgeKey(2, 0, 3, 0)],
+    }
+    for (const edge of removedEdgesByStage[stageIndex] ?? []) {
+      edges.delete(edge)
     }
     return [...edges]
   }
@@ -1921,13 +2186,14 @@ function App() {
     introKind === 'color-squares' ||
     introKind === 'stars' ||
     introKind === 'triangles' ||
-    (
-      isFixedPolyominoIntroKind(introKind) &&
       (
-        introKind === 'negative-polyomino' ||
-        introStageIndex !== 7
+        isFixedPolyominoIntroKind(introKind) &&
+        (
+          introKind === 'negative-polyomino' ||
+          introKind === 'rotated-negative-polyomino' ||
+          introStageIndex !== 7
+        )
       )
-    )
   const introDisplayGridLabel = introGeometry
     ? `${introGeometry.width}x${introGeometry.height}`
     : `${introCellCount}x${introCellCount}`
