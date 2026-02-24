@@ -246,196 +246,37 @@ function canTileRegion(regionCells: Array<{ x: number; y: number }>, symbols: Po
   const regionSet = new Set(regionCells.map((cell) => `${cell.x},${cell.y}`))
   const regionSize = regionCells.length
   const hasNegative = symbols.some((symbol) => symbol.negative)
-  const useRelaxedIntroNegativeCoverage =
-    hasNegative &&
-    symbols.some((symbol) => symbol.shape.id.startsWith('intro-neg-relaxed-'))
   const positiveArea = symbols.reduce(
-    (sum, symbol) => sum + (symbol.negative ? 0 : symbol.shape.size),
+    (sum, symbol) => sum + (symbol.negative ? 0 : symbol.shape.cells.length),
     0
   )
   const negativeArea = symbols.reduce(
-    (sum, symbol) => sum + (symbol.negative ? symbol.shape.size : 0),
+    (sum, symbol) => sum + (symbol.negative ? symbol.shape.cells.length : 0),
     0
   )
+  const netArea = positiveArea - negativeArea
   if (!hasNegative && positiveArea !== regionSize) return false
-  if (
-    hasNegative &&
-    !useRelaxedIntroNegativeCoverage &&
-    positiveArea - negativeArea !== regionSize
-  ) return false
+  if (hasNegative && netArea < 0) return false
+  if (hasNegative && netArea > 0 && netArea !== regionSize) return false
+
   const cellIndex = new Map<string, number>()
   regionCells.forEach((cell, idx) => cellIndex.set(`${cell.x},${cell.y}`, idx))
 
-  if (useRelaxedIntroNegativeCoverage) {
-    type RelaxedPlacement = {
-      regionCells: number[]
-      globalCells: string[]
-    }
-    const boardCells: Array<{ x: number; y: number }> = []
-    for (let y = 0; y < MAX_INDEX; y += 1) {
-      for (let x = 0; x < MAX_INDEX; x += 1) {
-        boardCells.push({ x, y })
-      }
-    }
-    const listRelaxedIntroPlacements = (symbol: PolyominoSymbol): RelaxedPlacement[] => {
-      const shapes = symbol.rotatable ? rotationVariantsForShape(symbol.shape) : [symbol.shape]
-      const placements: RelaxedPlacement[] = []
-      const seen = new Set<string>()
-
-      for (const shape of shapes) {
-        for (const anchor of boardCells) {
-          for (const shapeCell of shape.cells) {
-            const offsetX = anchor.x - shapeCell.x
-            const offsetY = anchor.y - shapeCell.y
-            const absoluteCells = shape.cells.map((cell) => ({
-              x: cell.x + offsetX,
-              y: cell.y + offsetY,
-            }))
-            if (
-              !absoluteCells.every(
-                (cell) =>
-                  cell.x >= 0 &&
-                  cell.x < MAX_INDEX &&
-                  cell.y >= 0 &&
-                  cell.y < MAX_INDEX
-              )
-            ) {
-              continue
-            }
-            const globalCells = absoluteCells.map((cell) => `${cell.x},${cell.y}`)
-            const globalKey = [...globalCells].sort().join('|')
-            if (seen.has(globalKey)) continue
-            seen.add(globalKey)
-            const regionOverlap = absoluteCells
-              .map((cell) => cellIndex.get(`${cell.x},${cell.y}`))
-              .filter((index): index is number => index !== undefined)
-            placements.push({
-              regionCells: [...new Set(regionOverlap)].sort((a, b) => a - b),
-              globalCells,
-            })
-          }
-        }
-      }
-
-      return placements
-    }
-
-    const symbolPlacements = symbols.map((symbol) => listRelaxedIntroPlacements(symbol))
+  if (!hasNegative) {
+    const symbolPlacements = symbols.map((symbol) =>
+      listRequirementPlacements(symbol, regionCells, regionSet).map((placement) =>
+        placement.cells
+          .map((cell) => cellIndex.get(cell))
+          .filter((index): index is number => index !== undefined)
+      )
+    )
     if (symbolPlacements.some((placements) => placements.length === 0)) return false
 
     const order = symbols
       .map((symbol, idx) => ({ symbol, idx, count: symbolPlacements[idx].length }))
       .sort((a, b) => a.count - b.count)
-
     const orderedPlacements = order.map((entry) => symbolPlacements[entry.idx])
-    const orderedSigns = order.map((entry) => (entry.symbol.negative ? -1 : 1))
-    const positiveCounts = Array.from({ length: regionSize }, () => 0)
-    const negativeCounts = Array.from({ length: regionSize }, () => 0)
-    const positiveCoverageBySymbol = orderedPlacements.map((placements, symbolIndex) => {
-      const coverage = Array.from({ length: regionSize }, () => false)
-      if (orderedSigns[symbolIndex] < 0) return coverage
-      for (const placement of placements) {
-        for (const index of placement.regionCells) {
-          coverage[index] = true
-        }
-      }
-      return coverage
-    })
-    const negativeCoverageBySymbol = orderedPlacements.map((placements, symbolIndex) => {
-      const coverage = Array.from({ length: regionSize }, () => false)
-      if (orderedSigns[symbolIndex] > 0) return coverage
-      for (const placement of placements) {
-        for (const index of placement.regionCells) {
-          coverage[index] = true
-        }
-      }
-      return coverage
-    })
 
-    const canStillReachExactCoverage = (startIndex: number) => {
-      for (let cell = 0; cell < regionSize; cell += 1) {
-        let positivesLeft = 0
-        let negativesLeft = 0
-        for (let i = startIndex; i < orderedPlacements.length; i += 1) {
-          if (orderedSigns[i] > 0 && positiveCoverageBySymbol[i][cell]) positivesLeft += 1
-          if (orderedSigns[i] < 0 && negativeCoverageBySymbol[i][cell]) negativesLeft += 1
-        }
-        const net = positiveCounts[cell] - negativeCounts[cell]
-        const minNet = net - negativesLeft
-        const maxNet = net + positivesLeft
-        if (1 < minNet || 1 > maxNet) return false
-      }
-      return true
-    }
-
-    const chosenPlacements: Array<RelaxedPlacement | null> = Array.from(
-      { length: orderedPlacements.length },
-      () => null
-    )
-    const solve = (index: number): boolean => {
-      if (!canStillReachExactCoverage(index)) return false
-      if (index >= orderedPlacements.length) {
-        for (let cell = 0; cell < regionSize; cell += 1) {
-          if (positiveCounts[cell] - negativeCounts[cell] !== 1) return false
-        }
-        const positiveGlobalCells = new Set<string>()
-        for (let i = 0; i < chosenPlacements.length; i += 1) {
-          if (orderedSigns[i] <= 0) continue
-          const placement = chosenPlacements[i]
-          if (!placement) continue
-          for (const cell of placement.globalCells) positiveGlobalCells.add(cell)
-        }
-        for (let i = 0; i < chosenPlacements.length; i += 1) {
-          if (orderedSigns[i] >= 0) continue
-          const placement = chosenPlacements[i]
-          if (!placement) return false
-          if (!placement.globalCells.some((cell) => positiveGlobalCells.has(cell))) {
-            return false
-          }
-        }
-        return true
-      }
-
-      const sign = orderedSigns[index]
-      for (const placement of orderedPlacements[index]) {
-        chosenPlacements[index] = placement
-        if (sign > 0) {
-          for (const cell of placement.regionCells) positiveCounts[cell] += 1
-        } else {
-          for (const cell of placement.regionCells) negativeCounts[cell] += 1
-        }
-        if (solve(index + 1)) return true
-        if (sign > 0) {
-          for (const cell of placement.regionCells) positiveCounts[cell] -= 1
-        } else {
-          for (const cell of placement.regionCells) negativeCounts[cell] -= 1
-        }
-        chosenPlacements[index] = null
-      }
-      return false
-    }
-
-    return solve(0)
-  }
-
-  const symbolPlacements = symbols.map((symbol) =>
-    listRequirementPlacements(symbol, regionCells, regionSet).map((placement) =>
-      placement.cells
-        .map((cell) => cellIndex.get(cell))
-        .filter((index): index is number => index !== undefined)
-    )
-  )
-  if (symbolPlacements.some((placements) => placements.length === 0)) return false
-
-  const order = symbols
-    .map((symbol, idx) => ({ symbol, idx, count: symbolPlacements[idx].length }))
-    .sort((a, b) => a.count - b.count)
-
-  const orderedPlacements = order.map((entry) => symbolPlacements[entry.idx])
-  const orderedSigns = order.map((entry) => (entry.symbol.negative ? -1 : 1))
-
-  // Legacy polyomino behavior (no negatives): region must be tiled exactly once.
-  if (!hasNegative) {
     const solveExact = (index: number, remaining: Set<number>): boolean => {
       if (index >= orderedPlacements.length) return remaining.size === 0
       for (const placement of orderedPlacements[index]) {
@@ -446,37 +287,112 @@ function canTileRegion(regionCells: Array<{ x: number; y: number }>, symbols: Po
       }
       return false
     }
+
     return solveExact(0, new Set(Array.from({ length: regionSize }, (_, i) => i)))
   }
 
-  // Negative behavior: every symbol is mandatory.
-  // Region cells are evaluated by net coverage (positive - negative), and each
-  // cell must end at exactly 1 coverage.
-  const positiveCounts = Array.from({ length: regionSize }, () => 0)
-  const negativeCounts = Array.from({ length: regionSize }, () => 0)
+  if (!symbols.some((symbol) => !symbol.negative)) return false
+
+  type GlobalPlacement = {
+    boardCells: number[]
+  }
+
+  const boardIndex = new Map<string, number>()
+  const boardCells: Array<{ x: number; y: number }> = []
+  let nextBoardIndex = 0
+  for (let y = 0; y < MAX_INDEX; y += 1) {
+    for (let x = 0; x < MAX_INDEX; x += 1) {
+      boardCells.push({ x, y })
+      boardIndex.set(`${x},${y}`, nextBoardIndex)
+      nextBoardIndex += 1
+    }
+  }
+  const boardSize = boardCells.length
+  const regionBoardCells = new Set<number>()
+  for (const cell of regionCells) {
+    const index = boardIndex.get(`${cell.x},${cell.y}`)
+    if (index !== undefined) regionBoardCells.add(index)
+  }
+
+  const listGlobalPlacements = (symbol: PolyominoSymbol): GlobalPlacement[] => {
+    const shapes = symbol.rotatable ? rotationVariantsForShape(symbol.shape) : [symbol.shape]
+    const placements: GlobalPlacement[] = []
+    const seen = new Set<string>()
+
+    for (const shape of shapes) {
+      for (const anchor of boardCells) {
+        for (const shapeCell of shape.cells) {
+          const offsetX = anchor.x - shapeCell.x
+          const offsetY = anchor.y - shapeCell.y
+          const absoluteCells = shape.cells.map((cell) => ({
+            x: cell.x + offsetX,
+            y: cell.y + offsetY,
+          }))
+          if (
+            !absoluteCells.every(
+              (cell) =>
+                cell.x >= 0 &&
+                cell.x < MAX_INDEX &&
+                cell.y >= 0 &&
+                cell.y < MAX_INDEX
+            )
+          ) {
+            continue
+          }
+          const globalCells = absoluteCells.map((cell) => `${cell.x},${cell.y}`)
+          const globalKey = [...globalCells].sort().join('|')
+          if (seen.has(globalKey)) continue
+          seen.add(globalKey)
+          const absoluteBoardCells = absoluteCells
+            .map((cell) => boardIndex.get(`${cell.x},${cell.y}`))
+            .filter((index): index is number => index !== undefined)
+          placements.push({
+            boardCells: [...new Set(absoluteBoardCells)].sort((a, b) => a - b),
+          })
+        }
+      }
+    }
+
+    return placements
+  }
+
+  const symbolPlacements = symbols.map((symbol) => listGlobalPlacements(symbol))
+  if (symbolPlacements.some((placements) => placements.length === 0)) return false
+
+  const order = symbols
+    .map((symbol, idx) => ({ symbol, idx, count: symbolPlacements[idx].length }))
+    .sort((a, b) => a.count - b.count)
+  const orderedPlacements = order.map((entry) => symbolPlacements[entry.idx])
+  const orderedSigns = order.map((entry) => (entry.symbol.negative ? -1 : 1))
+  const targetNetByBoardCell = Array.from({ length: boardSize }, (_, index) =>
+    netArea === 0 ? 0 : regionBoardCells.has(index) ? 1 : 0
+  )
+
+  const positiveCounts = Array.from({ length: boardSize }, () => 0)
+  const negativeCounts = Array.from({ length: boardSize }, () => 0)
   const positiveCoverageBySymbol = orderedPlacements.map((placements, symbolIndex) => {
-    const coverage = Array.from({ length: regionSize }, () => false)
+    const coverage = Array.from({ length: boardSize }, () => false)
     if (orderedSigns[symbolIndex] < 0) return coverage
     for (const placement of placements) {
-      for (const index of placement) {
+      for (const index of placement.boardCells) {
         coverage[index] = true
       }
     }
     return coverage
   })
   const negativeCoverageBySymbol = orderedPlacements.map((placements, symbolIndex) => {
-    const coverage = Array.from({ length: regionSize }, () => false)
+    const coverage = Array.from({ length: boardSize }, () => false)
     if (orderedSigns[symbolIndex] > 0) return coverage
     for (const placement of placements) {
-      for (const index of placement) {
+      for (const index of placement.boardCells) {
         coverage[index] = true
       }
     }
     return coverage
   })
 
-  const canStillReachExactCoverage = (startIndex: number) => {
-    for (let cell = 0; cell < regionSize; cell += 1) {
+  const canStillReachTargetNet = (startIndex: number) => {
+    for (let cell = 0; cell < boardSize; cell += 1) {
       let positivesLeft = 0
       let negativesLeft = 0
       for (let i = startIndex; i < orderedPlacements.length; i += 1) {
@@ -486,16 +402,20 @@ function canTileRegion(regionCells: Array<{ x: number; y: number }>, symbols: Po
       const net = positiveCounts[cell] - negativeCounts[cell]
       const minNet = net - negativesLeft
       const maxNet = net + positivesLeft
-      if (1 < minNet || 1 > maxNet) return false
+      const target = targetNetByBoardCell[cell]
+      if (target < minNet || target > maxNet) return false
+      if (negativeCounts[cell] > positiveCounts[cell] + positivesLeft) return false
     }
     return true
   }
 
   const solve = (index: number): boolean => {
-    if (!canStillReachExactCoverage(index)) return false
+    if (!canStillReachTargetNet(index)) return false
     if (index >= orderedPlacements.length) {
-      for (let cell = 0; cell < regionSize; cell += 1) {
-        if (positiveCounts[cell] - negativeCounts[cell] !== 1) return false
+      for (let cell = 0; cell < boardSize; cell += 1) {
+        if (negativeCounts[cell] > positiveCounts[cell]) return false
+        const net = positiveCounts[cell] - negativeCounts[cell]
+        if (net !== targetNetByBoardCell[cell]) return false
       }
       return true
     }
@@ -503,15 +423,15 @@ function canTileRegion(regionCells: Array<{ x: number; y: number }>, symbols: Po
     const sign = orderedSigns[index]
     for (const placement of orderedPlacements[index]) {
       if (sign > 0) {
-        for (const cell of placement) positiveCounts[cell] += 1
+        for (const cell of placement.boardCells) positiveCounts[cell] += 1
       } else {
-        for (const cell of placement) negativeCounts[cell] += 1
+        for (const cell of placement.boardCells) negativeCounts[cell] += 1
       }
       if (solve(index + 1)) return true
       if (sign > 0) {
-        for (const cell of placement) positiveCounts[cell] -= 1
+        for (const cell of placement.boardCells) positiveCounts[cell] -= 1
       } else {
-        for (const cell of placement) negativeCounts[cell] -= 1
+        for (const cell of placement.boardCells) negativeCounts[cell] -= 1
       }
     }
     return false

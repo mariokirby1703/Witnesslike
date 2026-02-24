@@ -499,13 +499,23 @@ const POLY_NONO_CUBE_SHAPE: PolyominoShape = {
     { x: 0, y: 2 }, { x: 1, y: 2 }, { x: 2, y: 2 },
   ],
 }
-const POLY_HEXADECA_CUBE_SHAPE: PolyominoShape = {
-  id: 'intro-poly-hexadeca-cube',
-  size: 16,
+const POLY_OCTA_CHEESE: PolyominoShape = {
+  id: 'intro-poly-octa-cheese',
+  size: 8,
+  cells: [
+    { x: 0, y: 0 }, { x: 2, y: 0 },
+    { x: 1, y: 1 }, { x: 3, y: 1 },
+    { x: 0, y: 2 }, { x: 2, y: 2 },
+    { x: 1, y: 3 }, { x: 3, y: 3 },
+  ],
+}
+const POLY_OCTA_CIRCLE: PolyominoShape = {
+  id: 'intro-poly-octa-circle',
+  size: 8,
   cells: [
     { x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 },
-    { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 },
-    { x: 0, y: 2 }, { x: 1, y: 2 }, { x: 2, y: 2 }, { x: 3, y: 2 },
+    { x: 0, y: 1 }, { x: 3, y: 1 },
+    { x: 0, y: 2 }, { x: 3, y: 2 },
     { x: 0, y: 3 }, { x: 1, y: 3 }, { x: 2, y: 3 }, { x: 3, y: 3 },
   ],
 }
@@ -1047,19 +1057,11 @@ const NEGATIVE_POLYOMINO_INTRO_SPECS: PolyominoIntroSpec[] = [
     cellCount: 4,
     symbols: [
       {
-        cellX: 1,
-        cellY: 1,
-        shape: POLY_HEXADECA_CUBE_SHAPE,
-        color: POLYOMINO_GOLD,
-        rotatable: false,
-        negative: false,
-      },
-      {
         cellX: 0,
-        cellY: 3,
+        cellY: 2,
         shape: POLY_TET_LINE_HORIZONTAL_SHAPE,
         color: POLYOMINO_GOLD,
-        rotatable: false,
+        rotatable: true,
         negative: false,
       },
       {
@@ -1070,50 +1072,13 @@ const NEGATIVE_POLYOMINO_INTRO_SPECS: PolyominoIntroSpec[] = [
         rotatable: false,
         negative: true,
       },
-    ],
-  },
-  {
-    cellCount: 4,
-    symbols: [
       {
-        cellX: 1,
+        cellX: 2,
         cellY: 1,
-        shape: POLY_HEXADECA_CUBE_SHAPE,
+        shape: POLY_TET_T_LYING_SHAPE,
         color: POLYOMINO_GOLD,
         rotatable: false,
         negative: false,
-      },
-      {
-        cellX: 0,
-        cellY: 3,
-        shape: POLY_TRI_LINE_VERTICAL_SHAPE,
-        color: POLYOMINO_GOLD,
-        rotatable: false,
-        negative: false,
-      },
-      {
-        cellX: 3,
-        cellY: 0,
-        shape: POLY_TRI_LINE_VERTICAL_SHAPE,
-        color: NEGATIVE_POLYOMINO_COLOR,
-        rotatable: false,
-        negative: true,
-      },
-      {
-        cellX: 0,
-        cellY: 0,
-        shape: POLY_TRI_STAIR_SHAPE,
-        color: POLYOMINO_GOLD,
-        rotatable: false,
-        negative: false,
-      },
-      {
-        cellX: 3,
-        cellY: 3,
-        shape: POLY_TRI_STAIR_SHAPE,
-        color: NEGATIVE_POLYOMINO_COLOR,
-        rotatable: false,
-        negative: true,
       },
     ],
   },
@@ -1121,17 +1086,9 @@ const NEGATIVE_POLYOMINO_INTRO_SPECS: PolyominoIntroSpec[] = [
     cellCount: 4,
     symbols: [
       {
-        cellX: 1,
+        cellX: 0,
         cellY: 1,
-        shape: POLY_HEXADECA_CUBE_SHAPE,
-        color: POLYOMINO_GOLD,
-        rotatable: false,
-        negative: false,
-      },
-      {
-        cellX: 0,
-        cellY: 3,
-        shape: POLY_TET_L_SHAPE,
+        shape: POLY_TET_LINE_HORIZONTAL_SHAPE,
         color: POLYOMINO_GOLD,
         rotatable: false,
         negative: false,
@@ -1139,7 +1096,7 @@ const NEGATIVE_POLYOMINO_INTRO_SPECS: PolyominoIntroSpec[] = [
       {
         cellX: 3,
         cellY: 0,
-        shape: POLY_TET_L_SHAPE,
+        shape: POLY_DOMINO_VERTICAL_SHAPE,
         color: NEGATIVE_POLYOMINO_COLOR,
         rotatable: false,
         negative: true,
@@ -1147,23 +1104,57 @@ const NEGATIVE_POLYOMINO_INTRO_SPECS: PolyominoIntroSpec[] = [
       {
         cellX: 0,
         cellY: 0,
-        shape: POLY_TET_T_LYING_SHAPE,
+        shape: POLY_TRI_LINE_HORIZONTAL_SHAPE,
         color: POLYOMINO_GOLD,
-        rotatable: false,
+        rotatable: true,
         negative: false,
       },
       {
         cellX: 3,
         cellY: 3,
-        shape: POLY_TET_T_LYING_SHAPE,
-        color: NEGATIVE_POLYOMINO_COLOR,
+        shape: POLY_TRI_LINE_VERTICAL_SHAPE,
+        color: POLYOMINO_GOLD,
         rotatable: false,
-        negative: true,
+        negative: false,
       },
+    ],
+  },
+  {
+    cellCount: 4,
+    symbols: [
       {
         cellX: 1,
         cellY: 3,
-        shape: POLY_DOMINO_HORIZONTAL_SHAPE,
+        shape: POLY_MONO_SHAPE,
+        color: NEGATIVE_POLYOMINO_COLOR,
+        rotatable: false,
+        negative: true,
+      },
+      {
+        cellX: 3,
+        cellY: 0,
+        shape: POLY_OCTA_CIRCLE,
+        color: POLYOMINO_GOLD,
+        rotatable: false,
+        negative: false,
+      },
+    ],
+  },
+  {
+    cellCount: 4,
+    symbols: [
+      {
+        cellX: 0,
+        cellY: 0,
+        shape: POLY_OCTA_CHEESE,
+        color: POLYOMINO_GOLD,
+        rotatable: false,
+        negative: false,
+      },
+      {
+        cellX: 3,
+        cellY: 1,
+        shape: POLY_TET_T_LYING_SHAPE,
         color: POLYOMINO_GOLD,
         rotatable: false,
         negative: false,
@@ -1171,84 +1162,23 @@ const NEGATIVE_POLYOMINO_INTRO_SPECS: PolyominoIntroSpec[] = [
       {
         cellX: 2,
         cellY: 0,
-        shape: POLY_DOMINO_HORIZONTAL_SHAPE,
+        shape: POLY_MONO_SHAPE,
         color: NEGATIVE_POLYOMINO_COLOR,
         rotatable: false,
         negative: true,
       },
-    ],
-  },
-  {
-    cellCount: 4,
-    symbols: [
       {
         cellX: 1,
         cellY: 1,
-        shape: POLY_HEXADECA_CUBE_SHAPE,
-        color: POLYOMINO_GOLD,
+        shape: POLY_MONO_SHAPE,
+        color: NEGATIVE_POLYOMINO_COLOR,
         rotatable: false,
-        negative: false,
+        negative: true,
       },
       {
         cellX: 0,
         cellY: 2,
-        shape: POLY_TET_S_SIDE_SHAPE,
-        color: POLYOMINO_GOLD,
-        rotatable: false,
-        negative: false,
-      },
-      {
-        cellX: 3,
-        cellY: 1,
-        shape: POLY_TET_S_SIDE_SHAPE,
-        color: NEGATIVE_POLYOMINO_COLOR,
-        rotatable: false,
-        negative: true,
-      },
-      {
-        cellX: 0,
-        cellY: 3,
-        shape: POLY_TET_WEIRD_SHAPE,
-        color: POLYOMINO_GOLD,
-        rotatable: false,
-        negative: false,
-      },
-      {
-        cellX: 3,
-        cellY: 0,
-        shape: POLY_TET_WEIRD_SHAPE,
-        color: NEGATIVE_POLYOMINO_COLOR,
-        rotatable: false,
-        negative: true,
-      },
-      {
-        cellX: 1,
-        cellY: 3,
-        shape: POLY_TET_SPLIT_SHAPE,
-        color: POLYOMINO_GOLD,
-        rotatable: false,
-        negative: false,
-      },
-      {
-        cellX: 2,
-        cellY: 0,
-        shape: POLY_TET_SPLIT_SHAPE,
-        color: NEGATIVE_POLYOMINO_COLOR,
-        rotatable: false,
-        negative: true,
-      },
-      {
-        cellX: 0,
-        cellY: 0,
-        shape: POLY_TET_SPLIT2_SHAPE,
-        color: POLYOMINO_GOLD,
-        rotatable: false,
-        negative: false,
-      },
-      {
-        cellX: 3,
-        cellY: 3,
-        shape: POLY_TET_SPLIT2_SHAPE,
+        shape: POLY_MONO_SHAPE,
         color: NEGATIVE_POLYOMINO_COLOR,
         rotatable: false,
         negative: true,
@@ -1779,17 +1709,13 @@ function buildPolyominoIntroStageSymbols(kind: TileKind, stageIndex: number) {
     kind === 'rotated-polyomino' ? true : kind === 'polyomino' ? false : null
   const forcedNegative =
     kind === 'polyomino' || kind === 'rotated-polyomino' ? false : null
-  const useRelaxedNegativeIntroValidation =
-    kind === 'negative-polyomino' && stageIndex <= 5
   return spec.symbols.map((symbol) => ({
     ...symbol,
     rotatable: forcedRotatable ?? symbol.rotatable,
     negative: forcedNegative ?? symbol.negative,
     shape: {
       ...symbol.shape,
-      id: useRelaxedNegativeIntroValidation
-        ? `intro-neg-relaxed-${stageIndex}-${symbol.shape.id}`
-        : symbol.shape.id,
+      id: symbol.shape.id,
       cells: symbol.shape.cells.map((cell) => ({ ...cell })),
     },
   }))
@@ -2155,3 +2081,4 @@ function App() {
 }
 
 export default App
+
