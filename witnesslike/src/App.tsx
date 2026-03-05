@@ -470,6 +470,11 @@ const POLY_TET_S_VERTICAL_SHAPE: PolyominoShape = {
   size: 4,
   cells: [{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 1, y: 2 }],
 }
+const POLY_TET_Z_SHAPE: PolyominoShape = {
+  id: 'intro-poly-tet-z',
+  size: 4,
+  cells: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 1 }],
+}
 const POLY_TET_T_LYING_SHAPE: PolyominoShape = {
   id: 'intro-poly-tet-t-lying',
   size: 4,
@@ -517,6 +522,15 @@ const POLY_OCTA_CIRCLE: PolyominoShape = {
     { x: 0, y: 1 }, { x: 3, y: 1 },
     { x: 0, y: 2 }, { x: 3, y: 2 },
     { x: 0, y: 3 }, { x: 1, y: 3 }, { x: 2, y: 3 }, { x: 3, y: 3 },
+  ],
+}
+const POLY_PENTA_MOON: PolyominoShape = {
+  id: 'intro-poly-penta-moon',
+  size: 5,
+  cells: [
+    { x: 0, y: 0 }, { x: 1, y: 0 },
+    { x: 0, y: 1 },
+    { x: 0, y: 2 }, { x: 1, y: 2 },
   ],
 }
 
@@ -1257,16 +1271,16 @@ const ROTATED_NEGATIVE_POLYOMINO_INTRO_SPECS: PolyominoIntroSpec[] = [
     symbols: [
       {
         cellX: 0,
-        cellY: 1,
-        shape: POLY_TRI_LINE_VERTICAL_SHAPE,
+        cellY: 0,
+        shape: POLY_NONO_CUBE_SHAPE,
         color: POLYOMINO_GOLD,
         rotatable: false,
         negative: false,
       },
       {
         cellX: 2,
-        cellY: 0,
-        shape: POLY_TRI_LINE_HORIZONTAL_SHAPE,
+        cellY: 2,
+        shape: POLY_TRI_STAIR_SHAPE,
         color: NEGATIVE_POLYOMINO_COLOR,
         rotatable: true,
         negative: true,
@@ -1277,20 +1291,28 @@ const ROTATED_NEGATIVE_POLYOMINO_INTRO_SPECS: PolyominoIntroSpec[] = [
     cellCount: 3,
     symbols: [
       {
-        cellX: 0,
-        cellY: 2,
-        shape: POLY_TET_S_SIDE_SHAPE,
+        cellX: 1,
+        cellY: 1,
+        shape: POLY_NONO_CUBE_SHAPE,
         color: POLYOMINO_GOLD,
         rotatable: false,
         negative: false,
       },
       {
-        cellX: 3,
-        cellY: 1,
-        shape: POLY_TET_S_VERTICAL_SHAPE,
+        cellX: 0,
+        cellY: 2,
+        shape: POLY_PENTA_MOON,
         color: NEGATIVE_POLYOMINO_COLOR,
         rotatable: true,
         negative: true,
+      },
+      {
+        cellX: 0,
+        cellY: 0,
+        shape: POLY_MONO_SHAPE,
+        color: POLYOMINO_GOLD,
+        rotatable: false,
+        negative: false,
       },
     ],
   },
@@ -1319,17 +1341,78 @@ const ROTATED_NEGATIVE_POLYOMINO_INTRO_SPECS: PolyominoIntroSpec[] = [
     cellCount: 4,
     symbols: [
       {
-        cellX: 2,
+        cellX: 0,
         cellY: 0,
-        shape: POLY_TET_S_SIDE_SHAPE,
+        shape: POLY_TET_L_SHAPE,
         color: POLYOMINO_GOLD,
         rotatable: false,
         negative: false,
       },
       {
         cellX: 2,
-        cellY: 0,
+        cellY: 1,
         shape: POLY_TET_S_VERTICAL_SHAPE,
+        color: NEGATIVE_POLYOMINO_COLOR,
+        rotatable: true,
+        negative: true,
+      },
+      {
+        cellX: 3,
+        cellY: 3,
+        shape: POLY_TRI_STAIR_ROTATED_SHAPE,
+        color: POLYOMINO_GOLD,
+        rotatable: false,
+        negative: false,
+      },
+      {
+        cellX: 1,
+        cellY: 3,
+        shape: POLY_MONO_SHAPE,
+        color: POLYOMINO_GOLD,
+        rotatable: false,
+        negative: false,
+      },
+      {
+        cellX: 3,
+        cellY: 0,
+        shape: POLY_PENTA_MOON,
+        color: POLYOMINO_GOLD,
+        rotatable: true,
+        negative: false,
+      },
+    ],
+  },
+  {
+    cellCount: 4,
+    symbols: [
+      {
+        cellX: 0,
+        cellY: 0,
+        shape: POLY_TET_LINE_HORIZONTAL_SHAPE,
+        color: POLYOMINO_GOLD,
+        rotatable: true,
+        negative: false,
+      },
+      {
+        cellX: 2,
+        cellY: 1,
+        shape: POLY_TET_Z_SHAPE,
+        color: POLYOMINO_GOLD,
+        rotatable: true,
+        negative: false,
+      },
+      {
+        cellX: 3,
+        cellY: 3,
+        shape: POLY_TET_LINE_HORIZONTAL_SHAPE,
+        color: POLYOMINO_GOLD,
+        rotatable: false,
+        negative: false,
+      },
+      {
+        cellX: 1,
+        cellY: 2,
+        shape: POLY_DOMINO_HORIZONTAL_SHAPE,
         color: NEGATIVE_POLYOMINO_COLOR,
         rotatable: true,
         negative: true,
@@ -1342,54 +1425,33 @@ const ROTATED_NEGATIVE_POLYOMINO_INTRO_SPECS: PolyominoIntroSpec[] = [
       {
         cellX: 0,
         cellY: 0,
-        shape: POLY_TRI_STAIR_ROTATED_SHAPE,
+        shape: POLY_OCTA_CHEESE,
         color: POLYOMINO_GOLD,
         rotatable: false,
         negative: false,
       },
       {
-        cellX: 3,
+        cellX: 1,
         cellY: 1,
-        shape: POLY_DOMINO_HORIZONTAL_SHAPE,
+        shape: POLY_TET_SPLIT2_SHAPE,
         color: NEGATIVE_POLYOMINO_COLOR,
         rotatable: true,
         negative: true,
       },
       {
-        cellX: 3,
-        cellY: 3,
-        shape: POLY_DOMINO_VERTICAL_SHAPE,
-        color: POLYOMINO_GOLD,
-        rotatable: false,
-        negative: false,
-      },
-    ],
-  },
-  {
-    cellCount: 4,
-    symbols: [
-      {
         cellX: 1,
         cellY: 0,
-        shape: POLY_TET_S_SIDE_SHAPE,
-        color: POLYOMINO_GOLD,
-        rotatable: false,
-        negative: false,
-      },
-      {
-        cellX: 1,
-        cellY: 2,
-        shape: POLY_TET_S_VERTICAL_SHAPE,
+        shape: POLY_TET_WEIRD_SHAPE,
         color: NEGATIVE_POLYOMINO_COLOR,
         rotatable: true,
         negative: true,
       },
       {
         cellX: 2,
-        cellY: 2,
-        shape: POLY_TET_S_VERTICAL_SHAPE,
+        cellY: 0,
+        shape: POLY_TET_SPLIT_SHAPE,
         color: POLYOMINO_GOLD,
-        rotatable: false,
+        rotatable: true,
         negative: false,
       },
     ],
@@ -1945,22 +2007,6 @@ function buildPolyominoIntroStageEdgeKeys(kind: TileKind, stageIndex: number) {
     } else {
       edges.delete(introEdgeKey(0, 3, 1, 3))
       edges.delete(introEdgeKey(3, 0, 3, 1))
-    }
-    return [...edges]
-  }
-
-  if (kind === 'rotated-negative-polyomino') {
-    const edges = new Set(fullEdges)
-    const removedEdgesByStage: Record<number, string[]> = {
-      0: [introEdgeKey(0, 0, 1, 0)],
-      1: [introEdgeKey(0, 2, 1, 2), introEdgeKey(0, 0, 0, 1)],
-      2: [introEdgeKey(1, 2, 2, 2), introEdgeKey(0, 0, 0, 1)],
-      3: [introEdgeKey(1, 3, 2, 3), introEdgeKey(1, 0, 2, 0)],
-      4: [introEdgeKey(0, 0, 1, 0)],
-      6: [introEdgeKey(1, 4, 2, 4), introEdgeKey(2, 0, 3, 0)],
-    }
-    for (const edge of removedEdgesByStage[stageIndex] ?? []) {
-      edges.delete(edge)
     }
     return [...edges]
   }
