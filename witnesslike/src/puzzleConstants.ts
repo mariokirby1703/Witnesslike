@@ -2,7 +2,7 @@ export type Point = { x: number; y: number }
 
 export const DEFAULT_PUZZLE_CELL_COUNT = 4
 const MIN_PUZZLE_CELL_COUNT = 1
-const MAX_PUZZLE_CELL_COUNT = 4
+const MAX_PUZZLE_CELL_COUNT = 7
 const VIEWBOX_MARGIN = 0.6
 
 export let NODE_COUNT = DEFAULT_PUZZLE_CELL_COUNT + 1
@@ -42,4 +42,9 @@ export function setPuzzleCellCount(cellCount: number) {
     w: MAX_INDEX + VIEWBOX_MARGIN * 2,
     h: MAX_INDEX + VIEWBOX_MARGIN * 2,
   }
+}
+
+export function setPuzzleEndpoints(start: Point, end: Point) {
+  START = { ...start }
+  END = { ...end }
 }

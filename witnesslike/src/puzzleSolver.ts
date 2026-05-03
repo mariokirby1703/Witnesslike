@@ -139,8 +139,8 @@ function mergeRegionMaskEdges(
   return merged
 }
 
-function isAtEnd(point: Point) {
-  return point.x === END.x && point.y === END.y
+function isAtEnd(point: Point, end = END) {
+  return point.x === end.x && point.y === end.y
 }
 
 function isInteger(value: number) {
@@ -1061,11 +1061,13 @@ export function findAnyValidSolutionPath(
   activeKinds: TileKind[],
   symbols: SolverSymbols,
   maxVisitedNodes = Number.POSITIVE_INFINITY,
-  regionMaskEdges?: ReadonlySet<string>
+  regionMaskEdges?: ReadonlySet<string>,
+  start = START,
+  end = END
 ) {
-  const path: Point[] = [START]
+  const path: Point[] = [start]
   const usedEdges = new Set<string>()
-  const visitedNodes = new Set<string>([pointKey(START)])
+  const visitedNodes = new Set<string>([pointKey(start)])
   let visitedCount = 0
   let aborted = false
 
@@ -1077,13 +1079,13 @@ export function findAnyValidSolutionPath(
       return false
     }
 
-    if (isAtEnd(current)) {
+    if (isAtEnd(current, end)) {
       return evaluatePathConstraints(path, usedEdges, activeKinds, symbols, 'first', regionMaskEdges).ok
     }
 
     const nextNodes = neighbors(current).sort((a, b) => {
-      const aDistance = Math.abs(END.x - a.x) + Math.abs(END.y - a.y)
-      const bDistance = Math.abs(END.x - b.x) + Math.abs(END.y - b.y)
+      const aDistance = Math.abs(end.x - a.x) + Math.abs(end.y - a.y)
+      const bDistance = Math.abs(end.x - b.x) + Math.abs(end.y - b.y)
       return aDistance - bDistance
     })
 
@@ -1108,7 +1110,7 @@ export function findAnyValidSolutionPath(
     return false
   }
 
-  if (!dfs(START)) return null
+  if (!dfs(start)) return null
   return [...path]
 }
 
@@ -1121,8 +1123,8 @@ function stepDirection(from: Point, to: Point): StepDirection {
   return 'U'
 }
 
-function manhattanDistanceToEnd(point: Point) {
-  return Math.abs(END.x - point.x) + Math.abs(END.y - point.y)
+function manhattanDistanceToEnd(point: Point, end = END) {
+  return Math.abs(end.x - point.x) + Math.abs(end.y - point.y)
 }
 
 export function findSimplestValidSolutionPath(
@@ -1130,12 +1132,14 @@ export function findSimplestValidSolutionPath(
   activeKinds: TileKind[],
   symbols: SolverSymbols,
   maxVisitedNodes = Number.POSITIVE_INFINITY,
-  regionMaskEdges?: ReadonlySet<string>
+  regionMaskEdges?: ReadonlySet<string>,
+  start = START,
+  end = END
 ) {
-  const path: Point[] = [START]
+  const path: Point[] = [start]
   const usedEdges = new Set<string>()
-  const visitedNodes = new Set<string>([pointKey(START)])
-  const minimumEdgeCount = manhattanDistanceToEnd(START)
+  const visitedNodes = new Set<string>([pointKey(start)])
+  const minimumEdgeCount = manhattanDistanceToEnd(start, end)
   const maximumEdgeCount = NODE_COUNT * NODE_COUNT - 1
   const requiredParity = minimumEdgeCount % 2
   let visitedCount = 0
@@ -1159,10 +1163,10 @@ export function findSimplestValidSolutionPath(
       }
 
       const usedEdgeCount = path.length - 1
-      const remainingDistance = manhattanDistanceToEnd(current)
+      const remainingDistance = manhattanDistanceToEnd(current, end)
       if (usedEdgeCount + remainingDistance > edgeLimit) return
 
-      if (isAtEnd(current)) {
+      if (isAtEnd(current, end)) {
         if (usedEdgeCount !== edgeLimit) return
         const evaluation = evaluatePathConstraints(
           path,
@@ -1186,7 +1190,7 @@ export function findSimplestValidSolutionPath(
         .filter((next) => edges.has(edgeKey(current, next)) && !visitedNodes.has(pointKey(next)))
         .map((next) => {
           const direction = stepDirection(current, next)
-          const distance = manhattanDistanceToEnd(next)
+          const distance = manhattanDistanceToEnd(next, end)
           const turnPenalty =
             previousDirection && previousDirection !== direction ? 1 : 0
           return { next, direction, distance, turnPenalty }
@@ -1213,7 +1217,7 @@ export function findSimplestValidSolutionPath(
       }
     }
 
-    dfs(START, null, 0)
+    dfs(start, null, 0)
     return bestPath
   }
 

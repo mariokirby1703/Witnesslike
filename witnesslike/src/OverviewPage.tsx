@@ -3,6 +3,7 @@ type OverviewPageProps = {
   totalCount: number
   onOpenIntro: () => void
   onOpenCustom: () => void
+  onOpenCustomPuzzles: () => void
 }
 
 function OverviewPage({
@@ -10,6 +11,7 @@ function OverviewPage({
   totalCount,
   onOpenIntro,
   onOpenCustom,
+  onOpenCustomPuzzles,
 }: OverviewPageProps) {
   return (
     <div className="app home overview">
@@ -32,9 +34,17 @@ function OverviewPage({
 
         <button type="button" className="overview-card" onClick={onOpenCustom}>
           <p className="overview-card-eyebrow">Unlocked</p>
-          <h2>Custom Symbol Combinations</h2>
+          <h2>Symbol Combinations</h2>
           <p>
             {unlockedCount} / {totalCount} symbols available.
+          </p>
+        </button>
+
+        <button type="button" className="overview-card" onClick={onOpenCustomPuzzles}>
+          <p className="overview-card-eyebrow">Build</p>
+          <h2>Custom Puzzles</h2>
+          <p>
+            Place symbols, tune the grid, then solve or play your own layout.
           </p>
         </button>
       </section>

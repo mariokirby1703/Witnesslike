@@ -11,7 +11,7 @@ import {
   shuffle,
 } from '../puzzleUtils'
 
-export type MinesweeperNumberValue = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7
+export type MinesweeperNumberValue = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
 
 export type MinesweeperNumberTarget = {
   cellX: number
@@ -31,6 +31,7 @@ const DIGIT_BITMAPS: Record<MinesweeperNumberValue, string[]> = {
   5: ['11111', '10000', '11110', '00001', '00001', '10001', '01110'],
   6: ['00110', '01000', '10000', '11110', '10001', '10001', '01110'],
   7: ['11111', '00001', '00010', '00100', '01000', '01000', '01000'],
+  8: ['01110', '10001', '10001', '01110', '10001', '10001', '01110'],
 }
 
 function isPathCompatible(path: Point[], edges: Set<string>) {
@@ -98,7 +99,7 @@ export function generateMinesweeperNumbersForEdges(
     for (let x = 0; x < MAX_INDEX; x += 1) {
       if (blockedCells.has(`${x},${y}`)) continue
       const count = countSeparatedNeighborCells(regions, x, y)
-      if (count < 0 || count > 7) continue
+      if (count < 0 || count > 8) continue
       candidates.push({
         cellX: x,
         cellY: y,

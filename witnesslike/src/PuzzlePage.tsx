@@ -9,6 +9,7 @@ import {
   START,
   VIEWBOX,
   getPuzzleCellCount,
+  setPuzzleEndpoints,
   setPuzzleCellCount,
 } from './puzzleConstants'
 import type { Point } from './puzzleConstants'
@@ -127,13 +128,34 @@ type PuzzlePageProps = {
   fixedSeed?: number
   forcedEdgeKeys?: string[]
   hideGaps?: boolean
+  forcedArrowTargets?: ArrowTarget[]
   forcedColorSquares?: ColorSquare[]
   forcedStarTargets?: StarTarget[]
   forcedTriangleTargets?: TriangleTarget[]
+  forcedDotTargets?: DotTarget[]
+  forcedDiamondTargets?: DiamondTarget[]
+  forcedChevronTargets?: ChevronTarget[]
+  forcedMinesweeperTargets?: MinesweeperNumberTarget[]
+  forcedWaterDropletTargets?: WaterDropletTarget[]
+  forcedCardinalTargets?: CardinalTarget[]
+  forcedSpinnerTargets?: SpinnerTarget[]
+  forcedSentinelTargets?: SentinelTarget[]
+  forcedGhostTargets?: GhostTarget[]
+  forcedCrystalTargets?: CrystalTarget[]
+  forcedChipTargets?: ChipTarget[]
+  forcedDiceTargets?: DiceTarget[]
+  forcedBlackHoleTargets?: BlackHoleTarget[]
+  forcedOpenPentagonTargets?: OpenPentagonTarget[]
+  forcedEyeTargets?: EyeTarget[]
+  forcedTallyTargets?: TallyMarkTarget[]
+  forcedCompassTargets?: CompassTarget[]
   forcedPolyominoSymbols?: PolyominoSymbol[]
+  forcedNegatorTargets?: NegatorTarget[]
   forcedHexTargets?: HexTarget[]
   forcedStartPoint?: Point
   forcedEndPoint?: Point
+  forcedStartPoints?: Point[]
+  forcedEndPoints?: Point[]
   viewBoxOverride?: { x: number; y: number; w: number; h: number }
   titleOverride?: string
   subtitleOverride?: string
@@ -213,6 +235,32 @@ function emptyEliminations(): Eliminations {
     polyominoes: [],
     hexagons: [],
   }
+}
+
+function getEndCapPoint(endPoint: Point, maxX: number, maxY: number) {
+  const onLeft = endPoint.x === 0
+  const onRight = endPoint.x === maxX
+  const onTop = endPoint.y === 0
+  const onBottom = endPoint.y === maxY
+  const isCorner = (onLeft || onRight) && (onTop || onBottom)
+
+  const diagonalLength = END_CAP_LENGTH * Math.SQRT1_2
+  const straightLength = END_CAP_LENGTH
+  const dx = isCorner
+    ? onLeft ? -diagonalLength : diagonalLength
+    : onLeft ? -straightLength : onRight ? straightLength : 0
+  const dy = isCorner
+    ? onTop ? -diagonalLength : diagonalLength
+    : onTop ? -straightLength : onBottom ? straightLength : 0
+
+  return {
+    x: endPoint.x + dx,
+    y: endPoint.y + dy,
+  }
+}
+
+function samePoint(a: Point, b: Point) {
+  return a.x === b.x && a.y === b.y
 }
 
 function mapEliminations(
@@ -832,13 +880,34 @@ function PuzzlePage({
   fixedSeed,
   forcedEdgeKeys,
   hideGaps = false,
+  forcedArrowTargets,
   forcedColorSquares,
   forcedStarTargets,
   forcedTriangleTargets,
+  forcedDotTargets,
+  forcedDiamondTargets,
+  forcedChevronTargets,
+  forcedMinesweeperTargets,
+  forcedWaterDropletTargets,
+  forcedCardinalTargets,
+  forcedSpinnerTargets,
+  forcedSentinelTargets,
+  forcedGhostTargets,
+  forcedCrystalTargets,
+  forcedChipTargets,
+  forcedDiceTargets,
+  forcedBlackHoleTargets,
+  forcedOpenPentagonTargets,
+  forcedEyeTargets,
+  forcedTallyTargets,
+  forcedCompassTargets,
   forcedPolyominoSymbols,
+  forcedNegatorTargets,
   forcedHexTargets,
   forcedStartPoint,
   forcedEndPoint,
+  forcedStartPoints,
+  forcedEndPoints,
   viewBoxOverride,
   titleOverride,
   subtitleOverride,
@@ -846,12 +915,24 @@ function PuzzlePage({
   onSolved,
   cellCount = DEFAULT_PUZZLE_CELL_COUNT,
 }: PuzzlePageProps) {
-  const effectiveCellCount = Math.max(1, Math.min(4, Math.floor(cellCount)))
+  const effectiveCellCount = Math.max(1, Math.min(7, Math.floor(cellCount)))
   if (getPuzzleCellCount() !== effectiveCellCount) {
     setPuzzleCellCount(effectiveCellCount)
   }
-  const startPoint = forcedStartPoint ?? START
-  const endPoint = forcedEndPoint ?? END
+  const startPoints = forcedStartPoints && forcedStartPoints.length > 0
+    ? forcedStartPoints
+    : [forcedStartPoint ?? START]
+  const endPoints = forcedEndPoints && forcedEndPoints.length > 0
+    ? forcedEndPoints
+    : [forcedEndPoint ?? END]
+  const startPoint = startPoints[0] ?? START
+  const endPoint = endPoints[0] ?? END
+  if (forcedStartPoints?.length || forcedEndPoints?.length || forcedStartPoint || forcedEndPoint) {
+    setPuzzleEndpoints(
+      startPoint ?? { x: 0, y: effectiveCellCount },
+      endPoint ?? { x: effectiveCellCount, y: 0 }
+    )
+  }
   const boardViewBox = viewBoxOverride ?? VIEWBOX
   const [seed, setSeed] = useState(() =>
     fixedSeed ?? Math.floor(Math.random() * 1_000_000_000)
@@ -927,40 +1008,42 @@ function PuzzlePage({
     }
     const baseKinds = selectedKinds.length > 0 ? selectedKinds : (['gap-line'] as TileKind[])
     if (forcedEdgeKeys && forcedEdgeKeys.length > 0) {
+      const filterCells = <T extends { cellX: number; cellY: number }>(targets: T[] | undefined) =>
+        (targets ?? []).filter((target) => (
+          target.cellX >= 0 &&
+          target.cellY >= 0 &&
+          target.cellX < effectiveCellCount &&
+          target.cellY < effectiveCellCount
+        ))
       const forcedEdges = new Set(forcedEdgeKeys)
       const safeEdges =
-        forcedStartPoint || forcedEndPoint
+        forcedStartPoints?.length || forcedEndPoints?.length || forcedStartPoint || forcedEndPoint
           ? forcedEdges
           : hasPath(forcedEdges)
             ? forcedEdges
             : buildFullEdges()
-      const forcedSquares =
-        forcedColorSquares && forcedColorSquares.length > 0
-          ? forcedColorSquares.filter((square) => (
-              square.cellX >= 0 &&
-              square.cellY >= 0 &&
-              square.cellX < effectiveCellCount &&
-              square.cellY < effectiveCellCount
-            ))
-          : []
-      const forcedStars =
-        baseKinds.includes('stars') && forcedStarTargets && forcedStarTargets.length > 0
-          ? forcedStarTargets.filter((star) => (
-              star.cellX >= 0 &&
-              star.cellY >= 0 &&
-              star.cellX < effectiveCellCount &&
-              star.cellY < effectiveCellCount
-            ))
-          : []
-      const forcedTriangles =
-        baseKinds.includes('triangles') && forcedTriangleTargets && forcedTriangleTargets.length > 0
-          ? forcedTriangleTargets.filter((triangle) => (
-              triangle.cellX >= 0 &&
-              triangle.cellY >= 0 &&
-              triangle.cellX < effectiveCellCount &&
-              triangle.cellY < effectiveCellCount
-            ))
-          : []
+      const forcedArrows = baseKinds.includes('arrows') ? filterCells(forcedArrowTargets) : []
+      const forcedSquares = filterCells(forcedColorSquares)
+      const forcedStars = baseKinds.includes('stars') ? filterCells(forcedStarTargets) : []
+      const forcedTriangles = baseKinds.includes('triangles') ? filterCells(forcedTriangleTargets) : []
+      const forcedDots = baseKinds.includes('dots') ? filterCells(forcedDotTargets) : []
+      const forcedDiamonds = baseKinds.includes('diamonds') ? filterCells(forcedDiamondTargets) : []
+      const forcedChevrons = baseKinds.includes('chevrons') ? filterCells(forcedChevronTargets) : []
+      const forcedMinesweepers = baseKinds.includes('minesweeper-numbers') ? filterCells(forcedMinesweeperTargets) : []
+      const forcedWaterDroplets = baseKinds.includes('water-droplet') ? filterCells(forcedWaterDropletTargets) : []
+      const forcedCardinals = baseKinds.includes('cardinal') ? filterCells(forcedCardinalTargets) : []
+      const forcedSpinners = baseKinds.includes('spinner') ? filterCells(forcedSpinnerTargets) : []
+      const forcedSentinels = baseKinds.includes('sentinel') ? filterCells(forcedSentinelTargets) : []
+      const forcedGhosts = baseKinds.includes('ghost') ? filterCells(forcedGhostTargets) : []
+      const forcedCrystals = baseKinds.includes('crystals') ? filterCells(forcedCrystalTargets) : []
+      const forcedChips = baseKinds.includes('chips') ? filterCells(forcedChipTargets) : []
+      const forcedDice = baseKinds.includes('dice') ? filterCells(forcedDiceTargets) : []
+      const forcedBlackHoles = baseKinds.includes('black-holes') ? filterCells(forcedBlackHoleTargets) : []
+      const forcedOpenPentagons = baseKinds.includes('open-pentagons') ? filterCells(forcedOpenPentagonTargets) : []
+      const forcedEyes = baseKinds.includes('eyes') ? filterCells(forcedEyeTargets) : []
+      const forcedTallies = baseKinds.includes('tally-marks') ? filterCells(forcedTallyTargets) : []
+      const forcedCompasses = baseKinds.includes('compasses') ? filterCells(forcedCompassTargets) : []
+      const forcedNegators = baseKinds.includes('negator') ? filterCells(forcedNegatorTargets) : []
       const forcedPolyominoes =
         (
           baseKinds.includes('polyomino') ||
@@ -1002,29 +1085,29 @@ function PuzzlePage({
       return {
         puzzle: { edges: safeEdges },
         activeKinds: baseKinds,
-        arrowTargets: [] as ArrowTarget[],
+        arrowTargets: forcedArrows,
         colorSquares: forcedSquares,
         starTargets: forcedStars,
         triangleTargets: forcedTriangles,
-        dotTargets: [] as DotTarget[],
-        diamondTargets: [] as DiamondTarget[],
-        chevronTargets: [] as ChevronTarget[],
-        minesweeperTargets: [] as MinesweeperNumberTarget[],
-        waterDropletTargets: [] as WaterDropletTarget[],
-        cardinalTargets: [] as CardinalTarget[],
-        spinnerTargets: [] as SpinnerTarget[],
-        sentinelTargets: [] as SentinelTarget[],
-        ghostTargets: [] as GhostTarget[],
-        crystalTargets: [] as CrystalTarget[],
-        chipTargets: [] as ChipTarget[],
-        diceTargets: [] as DiceTarget[],
-        blackHoleTargets: [] as BlackHoleTarget[],
-        openPentagonTargets: [] as OpenPentagonTarget[],
-        eyeTargets: [] as EyeTarget[],
-        tallyTargets: [] as TallyMarkTarget[],
-        compassTargets: [] as CompassTarget[],
+        dotTargets: forcedDots,
+        diamondTargets: forcedDiamonds,
+        chevronTargets: forcedChevrons,
+        minesweeperTargets: forcedMinesweepers,
+        waterDropletTargets: forcedWaterDroplets,
+        cardinalTargets: forcedCardinals,
+        spinnerTargets: forcedSpinners,
+        sentinelTargets: forcedSentinels,
+        ghostTargets: forcedGhosts,
+        crystalTargets: forcedCrystals,
+        chipTargets: forcedChips,
+        diceTargets: forcedDice,
+        blackHoleTargets: forcedBlackHoles,
+        openPentagonTargets: forcedOpenPentagons,
+        eyeTargets: forcedEyes,
+        tallyTargets: forcedTallies,
+        compassTargets: forcedCompasses,
         polyominoSymbols: forcedPolyominoes,
-        negatorTargets: [] as NegatorTarget[],
+        negatorTargets: forcedNegators,
         hexTargets: forcedHexagons,
         solutionPath: [] as Point[],
       }
@@ -5240,13 +5323,34 @@ function PuzzlePage({
     fixedSeed,
     effectiveCellCount,
     forcedEdgeKeys,
+    forcedArrowTargets,
     forcedColorSquares,
     forcedStarTargets,
     forcedTriangleTargets,
+    forcedDotTargets,
+    forcedDiamondTargets,
+    forcedChevronTargets,
+    forcedMinesweeperTargets,
+    forcedWaterDropletTargets,
+    forcedCardinalTargets,
+    forcedSpinnerTargets,
+    forcedSentinelTargets,
+    forcedGhostTargets,
+    forcedCrystalTargets,
+    forcedChipTargets,
+    forcedDiceTargets,
+    forcedBlackHoleTargets,
+    forcedOpenPentagonTargets,
+    forcedEyeTargets,
+    forcedTallyTargets,
+    forcedCompassTargets,
     forcedPolyominoSymbols,
+    forcedNegatorTargets,
     forcedHexTargets,
     forcedStartPoint,
     forcedEndPoint,
+    forcedStartPoints,
+    forcedEndPoints,
     allowAutoSolve,
     allowNewPuzzle,
     allowLastSolved,
@@ -5342,12 +5446,6 @@ function PuzzlePage({
     (selectedTiles.length === 1
       ? selectedTiles[0].description
       : `Symbols: ${selectedTiles.map((tile) => tile.label).join(', ')}`)
-  const endCapPoint: Point = {
-    x: endPoint.x + END_CAP_LENGTH * Math.SQRT1_2,
-    y: endPoint.y - END_CAP_LENGTH * Math.SQRT1_2,
-  }
-  const endCapPath = `M ${endPoint.x} ${endPoint.y} L ${endCapPoint.x} ${endCapPoint.y}`
-
   const clearSolveTrace = () => {
     if (solveTraceAnimationRef.current === null) return
     window.cancelAnimationFrame(solveTraceAnimationRef.current)
@@ -5422,13 +5520,13 @@ function PuzzlePage({
     setResult('success')
   }
 
-  const handleStartClick = () => {
+  const handleStartClick = (point: Point) => {
     if (locked) return
     clearSolveTrace()
     setEliminations(emptyEliminations())
     setIsDrawing(true)
-    setPath([startPoint])
-    setCursor(startPoint)
+    setPath([point])
+    setCursor(point)
     setResult('idle')
   }
 
@@ -5469,8 +5567,10 @@ function PuzzlePage({
       }
     }
 
-    if (last.x === endPoint.x && last.y === endPoint.y) {
-      const closest = closestPointOnSegment(pointer, endPoint, endCapPoint)
+    const activeEndPoint = endPoints.find((candidate) => samePoint(candidate, last))
+    if (activeEndPoint) {
+      const activeEndCapPoint = getEndCapPoint(activeEndPoint, boardMaxX, boardMaxY)
+      const closest = closestPointOnSegment(pointer, activeEndPoint, activeEndCapPoint)
       const dist = distance(pointer, closest)
       if (dist < best.distance) {
         setCursor({ x: closest.x, y: closest.y })
@@ -5607,10 +5707,10 @@ function PuzzlePage({
   const handleCheck = () => {
     if (locked || result === 'success') return
     const last = path[path.length - 1]
-    if (!last) return
+    if (!last || path.length < 2) return
 
-    const isConnected = path[0].x === startPoint.x && path[0].y === startPoint.y
-    const atEnd = last.x === endPoint.x && last.y === endPoint.y
+    const isConnected = startPoints.some((point) => samePoint(point, path[0]))
+    const atEnd = endPoints.some((point) => samePoint(point, last))
     if (!isConnected || !atEnd) return
 
     applySolvedPath(path)
@@ -5646,21 +5746,55 @@ function PuzzlePage({
       hexTargets,
     }
     let solved: Point[] | null = null
-    solved = findSimplestValidSolutionPath(
-      puzzle.edges,
-      activeKinds,
-      symbols,
-      MANUAL_SOLVER_VISIT_BUDGET,
-      forcedRegionMaskEdges
-    )
-    if (!solved) {
-      solved = findSimplestValidSolutionPath(
-        puzzle.edges,
-        activeKinds,
-        symbols,
-        MANUAL_SOLVER_VISIT_BUDGET_FALLBACK,
-        forcedRegionMaskEdges
-      )
+    for (const candidateStart of startPoints) {
+      for (const candidateEnd of endPoints) {
+        if (samePoint(candidateStart, candidateEnd)) continue
+        setPuzzleEndpoints(candidateStart, candidateEnd)
+        solved = findSimplestValidSolutionPath(
+          puzzle.edges,
+          activeKinds,
+          symbols,
+          MANUAL_SOLVER_VISIT_BUDGET,
+          forcedRegionMaskEdges,
+          candidateStart,
+          candidateEnd
+        )
+        if (!solved) {
+          solved = findSimplestValidSolutionPath(
+            puzzle.edges,
+            activeKinds,
+            symbols,
+            MANUAL_SOLVER_VISIT_BUDGET_FALLBACK,
+            forcedRegionMaskEdges,
+            candidateStart,
+            candidateEnd
+          )
+        }
+        if (!solved) {
+          solved = findAnyValidSolutionPath(
+            puzzle.edges,
+            activeKinds,
+            symbols,
+            MANUAL_SOLVER_VISIT_BUDGET,
+            forcedRegionMaskEdges,
+            candidateStart,
+            candidateEnd
+          )
+        }
+        if (!solved) {
+          solved = findAnyValidSolutionPath(
+            puzzle.edges,
+            activeKinds,
+            symbols,
+            MANUAL_SOLVER_VISIT_BUDGET_FALLBACK,
+            forcedRegionMaskEdges,
+            candidateStart,
+            candidateEnd
+          )
+        }
+        if (solved) break
+      }
+      if (solved) break
     }
     if (!solved && solutionPath && solutionPath.length >= 2) {
       const hintedEdges = edgesFromPath(solutionPath)
@@ -5675,24 +5809,6 @@ function PuzzlePage({
       if (hintedEvaluation.ok) {
         solved = solutionPath
       }
-    }
-    if (!solved) {
-      solved = findAnyValidSolutionPath(
-        puzzle.edges,
-        activeKinds,
-        symbols,
-        MANUAL_SOLVER_VISIT_BUDGET,
-        forcedRegionMaskEdges
-      )
-    }
-    if (!solved) {
-      solved = findAnyValidSolutionPath(
-        puzzle.edges,
-        activeKinds,
-        symbols,
-        MANUAL_SOLVER_VISIT_BUDGET_FALLBACK,
-        forcedRegionMaskEdges
-      )
     }
     if (!solved || solved.length < 2) {
       setResult('fail')
@@ -5781,8 +5897,8 @@ function PuzzlePage({
   }
 
   const last = path[path.length - 1]
-  const isConnected = path.length > 0 && path[0].x === startPoint.x && path[0].y === startPoint.y
-  const canCheck = !!last && isConnected && last.x === endPoint.x && last.y === endPoint.y
+  const isConnected = path.length > 0 && startPoints.some((point) => samePoint(point, path[0]))
+  const canCheck = path.length >= 2 && !!last && isConnected && endPoints.some((point) => samePoint(point, last))
   const displayPoints = [...path]
   if (isDrawing && cursor) {
     displayPoints.push(cursor)
@@ -5791,15 +5907,18 @@ function PuzzlePage({
   const boardClass = ['board', result !== 'idle' ? result : '', canCheck ? 'can-check' : '']
     .filter(Boolean)
     .join(' ')
-  const startActive = isDrawing || path.length > 0
-  const startClass = [
-    'start',
-    startActive ? 'active' : '',
-    result === 'success' ? 'success' : '',
-    result === 'fail' ? 'fail' : '',
-  ]
-    .filter(Boolean)
-    .join(' ')
+  const pathStart = path[0]
+  const getStartClass = (point: Point) => {
+    const active = !!pathStart && samePoint(pathStart, point)
+    return [
+      'start',
+      active ? 'active' : '',
+      active && result === 'success' ? 'success' : '',
+      active && result === 'fail' ? 'fail' : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
+  }
   const eliminated = useMemo(
     () => ({
       negators: new Set(eliminations.negators),
@@ -5840,12 +5959,21 @@ function PuzzlePage({
     () => buildForcedRegionMaskEdges(forcedEdgeBounds, effectiveCellCount),
     [forcedEdgeBounds, effectiveCellCount]
   )
-  const boardMaxX = Math.max(startPoint.x, endPoint.x, forcedEdgeBounds?.maxX ?? MAX_INDEX)
-  const boardMaxY = Math.max(startPoint.y, endPoint.y, forcedEdgeBounds?.maxY ?? MAX_INDEX)
+  const endpointMaxX = Math.max(...startPoints.map((point) => point.x), ...endPoints.map((point) => point.x))
+  const endpointMaxY = Math.max(...startPoints.map((point) => point.y), ...endPoints.map((point) => point.y))
+  const boardMaxX = Math.max(endpointMaxX, forcedEdgeBounds?.maxX ?? MAX_INDEX)
+  const boardMaxY = Math.max(endpointMaxY, forcedEdgeBounds?.maxY ?? MAX_INDEX)
   const boardBgX = -0.45
   const boardBgY = -0.45
   const boardBgWidth = boardMaxX + 0.9
   const boardBgHeight = boardMaxY + 0.9
+  const endCapPaths = endPoints.map((point) => {
+    const capPoint = getEndCapPoint(point, boardMaxX, boardMaxY)
+    return {
+      point,
+      path: `M ${point.x} ${point.y} L ${capPoint.x} ${capPoint.y}`,
+    }
+  })
 
   return (
     <div className="app puzzle">
@@ -6695,22 +6823,44 @@ function PuzzlePage({
             </g>
           )}
 
-          <g className={`end-group ${canCheck ? 'active' : ''}`}>
-            <path
-              className="end-hit"
-              d={endCapPath}
-              onClick={handleCheck}
+          {endCapPaths.map(({ point, path: capPath }) => {
+            const endActive = !!last && samePoint(last, point) && isConnected
+            const endClass = [
+              'end-group',
+              endActive ? 'active' : '',
+              endActive && result === 'success' ? 'success' : '',
+              endActive && result === 'fail' ? 'fail' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')
+            return (
+              <g key={`end-${point.x}-${point.y}`} className={endClass}>
+                <path
+                  className="end-hit"
+                  d={capPath}
+                  onClick={handleCheck}
+                />
+                <path
+                  className="end-cap"
+                  d={capPath}
+                  onClick={handleCheck}
+                />
+              </g>
+            )
+          })}
+
+          {startPoints.map((point) => (
+            <circle
+              key={`start-${point.x}-${point.y}`}
+              className={getStartClass(point)}
+              cx={point.x}
+              cy={point.y}
+              r={0.24}
+              onClick={() => handleStartClick(point)}
             />
-            <path
-              className="end-cap"
-              d={endCapPath}
-              onClick={handleCheck}
-            />
-          </g>
+          ))}
 
           {pathPoints.length > 0 && <polyline ref={pathPolylineRef} className="path" points={pathPoints} />}
-
-          <circle className={startClass} cx={startPoint.x} cy={startPoint.y} r={0.24} onClick={handleStartClick} />
         </svg>
         </section>
         {progression && (

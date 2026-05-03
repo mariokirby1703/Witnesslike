@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import HomePage from './HomePage'
 import type { Tile, TileKind } from './HomePage'
+import CustomPuzzleBuilder from './CustomPuzzleBuilder'
+import type { CustomPuzzleConfig } from './CustomPuzzleBuilder'
 import IntroPage from './IntroPage'
 import OverviewPage from './OverviewPage'
 import PuzzlePage from './PuzzlePage'
@@ -12,7 +14,7 @@ import type { TriangleTarget } from './symbols/triangles'
 import { NEGATIVE_POLYOMINO_COLOR } from './symbols/polyomino'
 import type { PolyominoShape, PolyominoSymbol } from './symbols/polyomino'
 
-type View = 'overview' | 'intro-home' | 'intro-puzzle' | 'custom-home' | 'custom-puzzle'
+type View = 'overview' | 'intro-home' | 'intro-puzzle' | 'custom-home' | 'custom-puzzle' | 'builder-home' | 'builder-puzzle'
 type IntroProgress = Record<TileKind, number>
 
 const INTRO_PUZZLE_COUNT = 10
@@ -2172,6 +2174,7 @@ function App() {
   const [introKind, setIntroKind] = useState<TileKind>('gap-line')
   const [introStageIndex, setIntroStageIndex] = useState(0)
   const [introProgress, setIntroProgress] = useState<IntroProgress>(() => loadIntroProgress())
+  const [customPuzzleConfig, setCustomPuzzleConfig] = useState<CustomPuzzleConfig | null>(null)
 
   useEffect(() => {
     window.localStorage.setItem(INTRO_PROGRESS_STORAGE_KEY, JSON.stringify(introProgress))
@@ -2260,6 +2263,7 @@ function App() {
         totalCount={TILES.length}
         onOpenIntro={() => setView('intro-home')}
         onOpenCustom={() => setView('custom-home')}
+        onOpenCustomPuzzles={() => setView('builder-home')}
       />
     )
   }
@@ -2378,6 +2382,64 @@ function App() {
           setView('custom-puzzle')
         }}
         onBack={() => setView('overview')}
+      />
+    )
+  }
+
+  if (view === 'builder-home') {
+    return (
+      <CustomPuzzleBuilder
+        tiles={TILES}
+        onBack={() => setView('overview')}
+        onPlay={(config) => {
+          setCustomPuzzleConfig(config)
+          setView('builder-puzzle')
+        }}
+      />
+    )
+  }
+
+  if (view === 'builder-puzzle' && customPuzzleConfig) {
+    return (
+      <PuzzlePage
+        selectedTiles={customPuzzleConfig.selectedTiles}
+        onBack={() => setView('builder-home')}
+        allowAutoSolve
+        allowNewPuzzle={false}
+        allowLastSolved={false}
+        cellCount={Math.max(customPuzzleConfig.rows, customPuzzleConfig.columns)}
+        forcedEdgeKeys={customPuzzleConfig.forcedEdgeKeys}
+        forcedStartPoint={customPuzzleConfig.forcedStartPoint}
+        forcedEndPoint={customPuzzleConfig.forcedEndPoint}
+        forcedStartPoints={customPuzzleConfig.forcedStartPoints}
+        forcedEndPoints={customPuzzleConfig.forcedEndPoints}
+        viewBoxOverride={customPuzzleConfig.viewBoxOverride}
+        forcedArrowTargets={customPuzzleConfig.forcedArrowTargets}
+        forcedColorSquares={customPuzzleConfig.forcedColorSquares}
+        forcedStarTargets={customPuzzleConfig.forcedStarTargets}
+        forcedTriangleTargets={customPuzzleConfig.forcedTriangleTargets}
+        forcedDotTargets={customPuzzleConfig.forcedDotTargets}
+        forcedDiamondTargets={customPuzzleConfig.forcedDiamondTargets}
+        forcedChevronTargets={customPuzzleConfig.forcedChevronTargets}
+        forcedMinesweeperTargets={customPuzzleConfig.forcedMinesweeperTargets}
+        forcedWaterDropletTargets={customPuzzleConfig.forcedWaterDropletTargets}
+        forcedCardinalTargets={customPuzzleConfig.forcedCardinalTargets}
+        forcedSpinnerTargets={customPuzzleConfig.forcedSpinnerTargets}
+        forcedSentinelTargets={customPuzzleConfig.forcedSentinelTargets}
+        forcedGhostTargets={customPuzzleConfig.forcedGhostTargets}
+        forcedCrystalTargets={customPuzzleConfig.forcedCrystalTargets}
+        forcedChipTargets={customPuzzleConfig.forcedChipTargets}
+        forcedDiceTargets={customPuzzleConfig.forcedDiceTargets}
+        forcedBlackHoleTargets={customPuzzleConfig.forcedBlackHoleTargets}
+        forcedOpenPentagonTargets={customPuzzleConfig.forcedOpenPentagonTargets}
+        forcedEyeTargets={customPuzzleConfig.forcedEyeTargets}
+        forcedTallyTargets={customPuzzleConfig.forcedTallyTargets}
+        forcedCompassTargets={customPuzzleConfig.forcedCompassTargets}
+        forcedPolyominoSymbols={customPuzzleConfig.forcedPolyominoSymbols}
+        forcedNegatorTargets={customPuzzleConfig.forcedNegatorTargets}
+        forcedHexTargets={customPuzzleConfig.forcedHexTargets}
+        titleOverride="Custom Puzzle"
+        subtitleOverride={`${customPuzzleConfig.columns}x${customPuzzleConfig.rows} custom board`}
       />
     )
   }
